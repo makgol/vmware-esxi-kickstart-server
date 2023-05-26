@@ -1,0 +1,6 @@
+DEFAULT install
+NOHALT 1
+LABEL install
+  KERNEL esxi/mboot.c32 					
+  APPEND -c /bios_boot.cfg
+  IPAPPEND 2
