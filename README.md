@@ -118,7 +118,7 @@ Please increase the maximum number of open files according to your environment i
     DELETE http://<Web&API IP>:<API_SERVER_PORT>/ks/00-50-56-99-c4-74
     ```
 
-## Other Information
+## Getting ESXi versions
 You can use the following API to verify the mapping of iso file names to ESXi versions. This is useful for checking uploaded iso files and for deciding the guest_os_version of Nested ESXi and the VDS version to use when deploying a Nested vSphere environment automatically in conjunction with tools like Ansible.
 
 - **URI**:
@@ -138,3 +138,7 @@ You can use the following API to verify the mapping of iso file names to ESXi ve
     }
   }
   ```
+
+## Related tools
+- vmware-esxi-kickstart-client  
+https://github.com/makgol/vmware-esxi-kickstart-client
