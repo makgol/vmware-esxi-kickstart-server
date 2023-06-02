@@ -1,3 +1,5 @@
 kickstart
 files/
 ks/
+
+dist/
