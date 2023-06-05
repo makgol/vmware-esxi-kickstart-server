@@ -35,7 +35,7 @@ var (
 	//go:embed templates/pxe*
 	pxelinux embed.FS
 )
-	
+
 type KS struct {
 	Macaddress  string   `json:"macaddress"`
 	Password    string   `json:"password"`
@@ -51,10 +51,10 @@ type KS struct {
 }
 
 type Server struct {
-	KSDirPath		string
+	KSDirPath       string
 	DHCPLeaseConfig *config.DHCPLeaseConfig
 	FileRootDirInfo *config.FileRootDirInfo
-	logger			*zap.Logger
+	logger          *zap.Logger
 }
 
 func (k KS) Validate() error {
@@ -404,15 +404,15 @@ func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, file
 	}
 	dhcpCfg := config.GetDHCPLeaseConfig(cfg)
 	srv := &Server{
-		KSDirPath:			newKsDirPath,
-		DHCPLeaseConfig:	dhcpCfg,
-		FileRootDirInfo:	fileRootDirInfo,
-		logger:				logger,
+		KSDirPath:       newKsDirPath,
+		DHCPLeaseConfig: dhcpCfg,
+		FileRootDirInfo: fileRootDirInfo,
+		logger:          logger,
 	}
 	select {
-	case <- ctx.Done():
+	case <-ctx.Done():
 		logger.Fatal("shutting down API server...", zap.Error(err))
-		return 
+		return
 	default:
 	}
 

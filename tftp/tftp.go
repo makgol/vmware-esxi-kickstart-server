@@ -15,7 +15,7 @@ import (
 )
 
 type Server struct {
-	logger *zap.Logger
+	logger          *zap.Logger
 	fileRootDirInfo *config.FileRootDirInfo
 }
 
@@ -42,7 +42,7 @@ func (s *Server) getReadHandler() func(string, io.ReaderFrom) error {
 
 func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger, fileRootDirInfo *config.FileRootDirInfo) {
 	srv := Server{
-		logger:	logger,
+		logger:          logger,
 		fileRootDirInfo: fileRootDirInfo,
 	}
 	s := tftp.NewServer(srv.getReadHandler(), nil)
@@ -54,9 +54,9 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger, f
 		os.Exit(1)
 	}
 	select {
-	case <- ctx.Done():
+	case <-ctx.Done():
 		logger.Info("tftp server: shutting down...")
-		return 
+		return
 	default:
 	}
 }

@@ -7,10 +7,10 @@ import (
 )
 
 var (
-	MacIPMap        = make(map[string]net.IP)
-	MacIPMapMutex   sync.RWMutex
-	MacFileMap      = make(map[string]string)
-	MacFileMapMutex sync.RWMutex
+	MacIPMap               = make(map[string]net.IP)
+	MacIPMapMutex          sync.RWMutex
+	MacFileMap             = make(map[string]string)
+	MacFileMapMutex        sync.RWMutex
 	MacAddressManagerMutex sync.Mutex
 )
 

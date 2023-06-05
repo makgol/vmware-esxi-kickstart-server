@@ -34,9 +34,9 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 		logger.Fatal(fmt.Sprintf("unable to listen on %s", listen), zap.Error(err))
 	}
 	select {
-	case <- ctx.Done():
+	case <-ctx.Done():
 		logger.Info("dhcp server: shutting down...")
-		return 
+		return
 	default:
 	}
 
@@ -126,6 +126,7 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 		logger.Info(fmt.Sprintf("sending %s to %s", resp.Type, resp.HardwareAddr))
 		err = conn.SendDHCP(resp, intf)
 		if err != nil {
-			logger.Error("unable to send DHCP packet", zap.Error(err))		}
+			logger.Error("unable to send DHCP packet", zap.Error(err))
+		}
 	}
 }
