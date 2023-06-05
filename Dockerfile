@@ -40,4 +40,4 @@ EXPOSE 69/udp
 
 EXPOSE 80
 
-CMD ["./kickstart-server"]
+CMD ["kickstart-server"]

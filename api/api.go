@@ -67,7 +67,7 @@ func (k KS) Validate() error {
 		validation.Field(&k.Nameserver, validation.Required, is.IPv4.Error("invalid name server address")),
 		validation.Field(&k.Hostname, validation.Required, is.DNSName.Error("invalid hostname")),
 		validation.Field(&k.VLANID, validation.NotNil, validation.Min(0), validation.Max(4094)),
-		validation.Field(&k.CLI, validation.Required),
+		validation.Field(&k.CLI),
 		validation.Field(&k.Keyboard, validation.Required),
 		validation.Field(&k.ISOFilename, validation.Required),
 	)
