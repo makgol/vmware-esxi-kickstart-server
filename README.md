@@ -143,7 +143,7 @@ You can use the following API to verify the mapping of iso file names to ESXi ve
   ```
 
 ## Docker support
-This tool can also be run as a Docker container.The requirements remain unchanged even when using Docker. It is necessary to run in privileged mode and host network mode. It is recommended when using it in environments where you want to use an upgrade bundle and it is difficult to install PowerCLI to your server.
+This tool can also be run as a Docker container.The requirements remain unchanged even when using Docker. It is necessary to run in host network mode. It is recommended when using it in environments where you want to use an upgrade bundle and it is difficult to install PowerCLI to your server.
 1. Build the docker image
 ```
 docker build -t kickstart-server .
@@ -151,7 +151,7 @@ docker build -t kickstart-server .
 
 2. Run the docker container
 ```
-docker run --name kickstart-server --privileged --ulimit nofile=50000:50000 --restart=always --net=host -v <your_uploaded_iso_dir>:/work/files -itd kickstart-server
+docker run --name kickstart-server --ulimit nofile=50000:50000 --restart=always --net=host -v <your_uploaded_iso_dir>:/work/files -itd kickstart-server
 ```
 
 ## Related tools
