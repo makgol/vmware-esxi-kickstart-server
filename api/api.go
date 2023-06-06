@@ -60,15 +60,15 @@ type Server struct {
 func (k KS) Validate() error {
 	return validation.ValidateStruct(&k,
 		validation.Field(&k.Macaddress, validation.Required, is.MAC.Error("invalid mac address format")),
-		validation.Field(&k.Password, validation.Required),
+		validation.Field(&k.Password, validation.Required, is.ASCII.Error("invalid string type")),
 		validation.Field(&k.IP, validation.Required, is.IPv4.Error("invalid ipv4 address")),
 		validation.Field(&k.Netmask, validation.Required, is.IP.Error("invalid subnet mask error")),
 		validation.Field(&k.Gateway, validation.Required, is.IPv4.Error("invalid gateway address")),
 		validation.Field(&k.Nameserver, validation.Required, is.IPv4.Error("invalid name server address")),
 		validation.Field(&k.Hostname, validation.Required, is.DNSName.Error("invalid hostname")),
-		validation.Field(&k.VLANID, validation.NotNil, validation.Min(0), validation.Max(4094)),
-		validation.Field(&k.CLI),
-		validation.Field(&k.Keyboard, validation.Required),
+		validation.Field(&k.VLANID, validation.Min(0), validation.Max(4094)),
+		validation.Field(&k.CLI, validation.Each(is.ASCII.Error("invalid string type"))),
+		validation.Field(&k.Keyboard, is.ASCII.Error("invalid string type")),
 		validation.Field(&k.ISOFilename, validation.Required),
 	)
 }
@@ -143,6 +143,14 @@ func (s *Server) createKsConfig(w http.ResponseWriter, r *http.Request) {
 	err = json.Unmarshal([]byte(body), &ks)
 	if err != nil {
 		s.logger.Error("could not unmarshall request body", zap.Error(err))
+		if syntaxErr, ok := err.(*json.SyntaxError); ok {
+			http.Error(w, fmt.Sprintf("invalid JSON format. (at position %d)", syntaxErr.Offset), http.StatusBadRequest)
+			return
+		}
+		if typeErr, ok := err.(*json.UnmarshalTypeError); ok {
+			http.Error(w, fmt.Sprintf("type of %q value is invalid. expected type is %v, but got type is %v (at position %d)", typeErr.Field, typeErr.Type, typeErr.Value, typeErr.Offset), http.StatusBadRequest)
+			return
+		}
 		http.Error(w, "encountered unexpected problem", http.StatusInternalServerError)
 		return
 	}
@@ -189,6 +197,10 @@ func (s *Server) createKsConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 	kscfg.Execute(file, ks)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(body))
 }
 
 func (s *Server) isoFileMapManager(mac, isoname string) error {

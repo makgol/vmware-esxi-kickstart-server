@@ -73,41 +73,44 @@ Please increase the maximum number of open files according to your environment i
         Content-Type: application/json
         ```
     - **Body**: 
-        - `macaddress`: MAC address of the interface used for PXE boot
-        - `password`: Root user password of the Nested ESXi
-        - `ip`: IP address of vmk0
-        - `netmask`: Network mask of vmk0
-        - `gateway`: Default gateway of vmk0
-        - `nameserver`: DNS server of vmk0
-        - `hostname`: Hostname of the Nested ESXi
-        - `vlanid`: VLAN ID of vmk0
-        - `keyboard`: Keyboard layout of the OS, the default value is English(`US Default`).
-        - `isofilename`: Filename of the ISO to be installed. It must have the same name as the uploaded ISO file.
-        - `cli`: CLI commands to be executed after installation. Please note that these will not work if Secure Boot is enabled.
-    Example POST request:
-    ```
-    POST http://<Web&API IP>:<API_SERVER_PORT>/ks
-    Content-Type: application/json
+        | Key | Value | Required | Notes |
+        | :--- | :--- | :--- | :--- |
+        | `macaddress` | string | yes | MAC address of the interface used for PXE boot |
+        | `password` | string | yes | Root user password of the Nested ESXi |
+        | `ip` | string | yes | IP address of vmk0 |
+        | `netmask` | string | yes | Network mask of vmk0 |
+        | `gateway` | string | yes | Default gateway of vmk0 |
+        | `nameserver` | string | yes | DNS server of vmk0 |
+        | `hostname` | string | yes | Hostname of the Nested ESXi |
+        | `vlanid` | integer | no | VLAN ID of vmk0. Default value is 0. |
+        | `keyboard` | string | no | Keyboard layout of the OS, the default value is English(`US Default`). |
+        | `isofilename` | string | yes | Filename of the ISO to be installed. It must have the same name as the uploaded ISO file. |
+        | `cli` | array | no | CLI commands to be executed after installation. Please note that these will not work if Secure Boot is enabled. |
 
-    {
-        "macaddress": "00:50:56:99:c4:74",
-        "password": "VMware1!",
-        "ip": "192.168.1.1",
-        "netmask": "255.255.255.0",
-        "gateway": "192.168.1.254",
-        "nameserver": "192.168.1.250",
-        "hostname": "testesxi001.vsphere.local",
-        "vlanid": 11,
-        "keyboard": "Japanese",
-        "isofilename": "VMware-VMvisor-Installer-7.0U3c-19193900.x86_64.iso",
-        "cli": [
-            "vim-cmd hostsvc/enable_ssh",
-            "vim-cmd hostsvc/start_ssh",
-            "vim-cmd hostsvc/enable_esx_shell",
-            "vim-cmd hostsvc/start_esx_shell"
-        ]
-    }
-    ```
+    - **Example POST request**:
+      ```
+      POST http://<Web&API IP>:<API_SERVER_PORT>/ks
+      Content-Type: application/json
+
+      {
+          "macaddress": "00:50:56:99:c4:74",
+          "password": "VMware1!",
+          "ip": "192.168.1.1",
+          "netmask": "255.255.255.0",
+          "gateway": "192.168.1.254",
+          "nameserver": "192.168.1.250",
+          "hostname": "testesxi001.vsphere.local",
+          "vlanid": 11,
+          "keyboard": "Japanese",
+          "isofilename": "VMware-VMvisor-Installer-7.0U3c-19193900.x86_64.iso",
+          "cli": [
+              "vim-cmd hostsvc/enable_ssh",
+              "vim-cmd hostsvc/start_ssh",
+              "vim-cmd hostsvc/enable_esx_shell",
+              "vim-cmd hostsvc/start_esx_shell"
+          ]
+      }
+      ```
 
 6. Power on the Nested ESXi VM. The installation will begin automatically.
 
