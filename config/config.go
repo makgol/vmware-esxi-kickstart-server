@@ -5,19 +5,19 @@ import (
 )
 
 type Config struct {
-	APIPortAddr     net.IP `split_words:"true"`
+	APIPortAddr     net.IP     `split_words:"true"`
 	APIPortMask     net.IPMask `split_words:"true"`
-	APIServerPort   int    `default:"80" split_words:"true"`
-	ServicePortName string `split_words:"true"`
-	ServicePortAddr net.IP `split_words:"true"`
+	APIServerPort   int        `default:"80" split_words:"true"`
+	ServicePortName string     `split_words:"true"`
+	ServicePortAddr net.IP     `split_words:"true"`
 	ServicePortMask net.IPMask `split_words:"true"`
-	ServiceIpAddr	string `split_words:"true"`
-	APIIpAddr		string `split_words:"true"`
-	DHCPStartIP		string `split_words:"true"`
-	DHCPEndIP		string `split_words:"true"`
-	KsDirPath       string `default:"./" split_words:"true"`
-	FileDirPath     string `default:"./files" split_words:"true"`
-	LogFilePath		string `default:"/var/log/ks-server.log" split_words:"true"`
+	ServiceIpAddr   string     `split_words:"true"`
+	APIIpAddr       string     `split_words:"true"`
+	DHCPStartIP     string     `split_words:"true"`
+	DHCPEndIP       string     `split_words:"true"`
+	KsDirPath       string     `default:"./" split_words:"true"`
+	FileDirPath     string     `default:"./files" split_words:"true"`
+	LogFilePath     string     `default:"/var/log/ks-server.log" split_words:"true"`
 }
 
 type PortInfo struct {
@@ -36,7 +36,7 @@ func LoadDefaultConfig(apiPort, servicePort *PortInfo, cfg *Config) *Config {
 		ServicePortMask: servicePort.SubnetMask,
 		KsDirPath:       cfg.KsDirPath,
 		FileDirPath:     cfg.FileDirPath,
-		LogFilePath:	 cfg.LogFilePath,
+		LogFilePath:     cfg.LogFilePath,
 	}
 }
 

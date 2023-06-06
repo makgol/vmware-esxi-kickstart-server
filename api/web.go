@@ -90,7 +90,7 @@ func (s *Server) getUploadFileHandler(config *config.Config) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		if filepath.Ext(header.Filename) != ".iso" {
+		if filepath.Ext(header.Filename) != ".iso" && filepath.Ext(header.Filename) != ".zip" {
 			form := ErrorTemplateData{
 				Title:       "Upload Error",
 				Message:     "Invalid File Type",
@@ -138,6 +138,13 @@ func (s *Server) getUploadFileHandler(config *config.Config) http.HandlerFunc {
 		}
 
 		esxiFilePath := out.Name()
+		if filepath.Ext(header.Filename) == ".zip" {
+			esxiFilePath, err = s.zipToIso(config, esxiFilePath, header.Filename)
+			if err != nil {
+				s.logger.Error("error raised response handler", zap.Error(err))
+			}
+		}
+
 		err = s.ExtractISOfiles(config, esxiFilePath, header.Filename)
 		if err != nil {
 			form := ErrorTemplateData{

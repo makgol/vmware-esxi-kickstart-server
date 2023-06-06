@@ -7,7 +7,7 @@ This tool is designed to assist in the automatic installation of Nested ESXi thr
 When the code is executed, Web&API, DHCP, and TFTP services are initiated.
 
 - **Web&API**
-  - The default port number is 80. It processes POST requests containing the information for the ESXi to be deployed, creates ks.cfg, determines the DHCP lease IP corresponding to the ESXi's MAC address, and retains the mapping information. It also maintains the mapping of ks.cfg and the MAC address, responding with the appropriate file to GET requests from the target IP. This service also handles the upload of ESXi ISO files. Uploaded ISOs are edited for PXE installation.
+  - The default port number is 80. It processes POST requests containing the information for the ESXi to be deployed, creates ks.cfg, determines the DHCP lease IP corresponding to the ESXi's MAC address, and retains the mapping information. It also maintains the mapping of ks.cfg and the MAC address, responding with the appropriate file to GET requests from the target IP. This service also handles the upload of ESXi ISO files. Uploaded ISOs are edited for PXE installation. Additionally, if you install powercli 13.0 or later on your Linux environment, you will also be able to upload upgrade bundle zip files. If an upgrade bundle is uploaded, the server will convert it into an ISO file targeting the standard patch, and perform editing for PXE installation.
 - **DHCP**
   - Executes IP address lease for each MAC address according to the mapping information created by the API. The DHCP options include the bootfile of the ESXi version and the information of the TFTP server contained in the POST request received by the API. Discover messages from MAC addresses without mapping information are ignored. By default, the DHCP lease range is set to consider the entire CIDR range of the service port as a valid lease range. Although duplicate checks are performed using ARP, it is recommended that the network of the service port be dedicated to Nested ESXi.
 - **TFTP**
@@ -55,7 +55,7 @@ Please increase the maximum number of open files according to your environment i
     go run main.go
     ```
 
-3. Access the Web and upload the ESXi ISO file.
+3. Access the Web and upload the ESXi ISO or zip upgrade bundle file.
     ```
     http://<Web&API IP>:<API_SERVER_PORT>
     ```
@@ -73,41 +73,44 @@ Please increase the maximum number of open files according to your environment i
         Content-Type: application/json
         ```
     - **Body**: 
-        - `macaddress`: MAC address of the interface used for PXE boot
-        - `password`: Root user password of the Nested ESXi
-        - `ip`: IP address of vmk0
-        - `netmask`: Network mask of vmk0
-        - `gateway`: Default gateway of vmk0
-        - `nameserver`: DNS server of vmk0
-        - `hostname`: Hostname of the Nested ESXi
-        - `vlanid`: VLAN ID of vmk0
-        - `keyboard`: Keyboard layout of the OS, the default value is English(`US Default`).
-        - `isofilename`: Filename of the ISO to be installed. It must have the same name as the uploaded ISO file.
-        - `cli`: CLI commands to be executed after installation. Please note that these will not work if Secure Boot is enabled.
-    Example POST request:
-    ```
-    POST http://<Web&API IP>:<API_SERVER_PORT>/ks
-    Content-Type: application/json
+        | Key | Value | Required | Notes |
+        | :--- | :--- | :--- | :--- |
+        | `macaddress` | string | yes | MAC address of the interface used for PXE boot |
+        | `password` | string | yes | Root user password of the Nested ESXi |
+        | `ip` | string | yes | IP address of vmk0 |
+        | `netmask` | string | yes | Network mask of vmk0 |
+        | `gateway` | string | yes | Default gateway of vmk0 |
+        | `nameserver` | string | yes | DNS server of vmk0 |
+        | `hostname` | string | yes | Hostname of the Nested ESXi |
+        | `vlanid` | integer | no | VLAN ID of vmk0. Default value is 0. |
+        | `keyboard` | string | no | Keyboard layout of the OS, the default value is English(`US Default`). |
+        | `isofilename` | string | yes | Filename of the ISO to be installed. It must have the same name as the uploaded ISO file. |
+        | `cli` | array | no | CLI commands to be executed after installation. Please note that these will not work if Secure Boot is enabled. |
 
-    {
-        "macaddress": "00:50:56:99:c4:74",
-        "password": "VMware1!",
-        "ip": "192.168.1.1",
-        "netmask": "255.255.255.0",
-        "gateway": "192.168.1.254",
-        "nameserver": "192.168.1.250",
-        "hostname": "testesxi001.vsphere.local",
-        "vlanid": 11,
-        "keyboard": "Japanese",
-        "isofilename": "VMware-VMvisor-Installer-7.0U3c-19193900.x86_64.iso",
-        "cli": [
-            "vim-cmd hostsvc/enable_ssh",
-            "vim-cmd hostsvc/start_ssh",
-            "vim-cmd hostsvc/enable_esx_shell",
-            "vim-cmd hostsvc/start_esx_shell"
-        ]
-    }
-    ```
+    - **Example POST request**:
+      ```
+      POST http://<Web&API IP>:<API_SERVER_PORT>/ks
+      Content-Type: application/json
+
+      {
+          "macaddress": "00:50:56:99:c4:74",
+          "password": "VMware1!",
+          "ip": "192.168.1.1",
+          "netmask": "255.255.255.0",
+          "gateway": "192.168.1.254",
+          "nameserver": "192.168.1.250",
+          "hostname": "testesxi001.vsphere.local",
+          "vlanid": 11,
+          "keyboard": "Japanese",
+          "isofilename": "VMware-VMvisor-Installer-7.0U3c-19193900.x86_64.iso",
+          "cli": [
+              "vim-cmd hostsvc/enable_ssh",
+              "vim-cmd hostsvc/start_ssh",
+              "vim-cmd hostsvc/enable_esx_shell",
+              "vim-cmd hostsvc/start_esx_shell"
+          ]
+      }
+      ```
 
 6. Power on the Nested ESXi VM. The installation will begin automatically.
 
@@ -138,6 +141,18 @@ You can use the following API to verify the mapping of iso file names to ESXi ve
     }
   }
   ```
+
+## Docker support
+This tool can also be run as a Docker container.The requirements remain unchanged even when using Docker. It is necessary to run in privileged mode and host network mode. It is recommended when using it in environments where you want to use an upgrade bundle and it is difficult to install PowerCLI to your server.
+1. Build the docker image
+```
+docker build -t kickstart-server .
+```
+
+2. Run the docker container
+```
+docker run --name kickstart-server --privileged --ulimit nofile=50000:50000 --restart=always --net=host -v <your_uploaded_iso_dir>:/work/files -itd kickstart-server
+```
 
 ## Related tools
 - vmware-esxi-kickstart-client  

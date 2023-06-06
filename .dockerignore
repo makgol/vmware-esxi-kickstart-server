@@ -1,0 +1,8 @@
+files/
+ks/
+docker/
+.github/
+.git/
+.goreleaser.yaml
+.gitignore
+README.md

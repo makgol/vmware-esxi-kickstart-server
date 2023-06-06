@@ -165,8 +165,8 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 		biosBootCfgPath: "bios_boot.cfg",
 	}
 	embedToCopy := map[string]string{
-		pxelinuxcfgPath:	"pxelinux.cfg/default",
-		pxelinux0Path:		"pxelinux.0",
+		pxelinuxcfgPath: "pxelinux.cfg/default",
+		pxelinux0Path:   "pxelinux.0",
 	}
 
 	// copy embed files
@@ -177,7 +177,7 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 		}
 
 		if err = os.WriteFile(filepath.Join(src, dstFileName), srcFileContent, 0666); err != nil {
-				return err
+			return err
 		}
 	}
 
@@ -330,4 +330,25 @@ func copyFile(src, dst string) error {
 	}
 
 	return nil
+}
+
+func (s *Server) zipToIso(config *config.Config, esxiFilePath, filename string) (string, error) {
+	currentDir, err := os.Getwd()
+	if err != nil {
+		s.logger.Error("failed to get current directory", zap.Error(err))
+		return "", err
+	}
+	esxiFilePath = filepath.Join(currentDir, esxiFilePath)
+	isoFilePath := strings.Replace(esxiFilePath, ".zip", ".iso", -1)
+	commands := fmt.Sprintf(`
+      $addDepo = Add-EsxSoftwareDepot %s
+	  $imageName = (Get-EsxImageProfile | Where-Object { $_.Name -match '^ESXi-.*[0-9]-standard$' }).Name
+	  $exportResult = Export-EsxImageProfile -ImageProfile $imageName -ExportToIso %s -Force
+    `, esxiFilePath, isoFilePath)
+	err = exec.Command("pwsh", "-c", commands).Run()
+	if err != nil {
+		s.logger.Error("Failed to exec powercli script for convert to iso from zip", zap.Error(err))
+		return "", err
+	}
+	return isoFilePath, nil
 }
