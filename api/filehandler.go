@@ -148,6 +148,9 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 
 	pxelinuxcfgPath := "templates/pxelinuxcfg"
 	pxelinux0Path := "templates/pxelinux.0"
+	ipxePath := "templates/ipxe.efi"
+	undionlyPath := "templates/undionly.kpxe"
+	autoexecPath := "templates/autoexec.ipxe"
 
 	filesToCopy := map[string]string{
 		bootcfgPath:     "boot.cfg",
@@ -157,15 +160,17 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 	embedToCopy := map[string]string{
 		pxelinuxcfgPath: "pxelinux.cfg/default",
 		pxelinux0Path:   "pxelinux.0",
+		ipxePath:        "ipxe.efi",
+		undionlyPath:    "undionly.kpxe",
+		autoexecPath:    "autoexec.ipxe",
 	}
 
 	// copy embed files
 	for srcFileName, dstFileName := range embedToCopy {
-		srcFileContent, err := pxelinux.ReadFile(srcFileName)
+		srcFileContent, err := ipxe.ReadFile(srcFileName)
 		if err != nil {
 			return err
 		}
-
 		if err = os.WriteFile(filepath.Join(src, dstFileName), srcFileContent, 0666); err != nil {
 			return err
 		}
@@ -186,6 +191,8 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 		}
 		defer dstFile.Close()
 
+		prefixPath := fmt.Sprintf("prefix=http://%s:%d/ipxe/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
+		kerneloptPath := fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
 		if srcPath == bootcfgPath {
 			content, err := io.ReadAll(srcFile)
 			if err != nil {
@@ -196,16 +203,16 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 			prefixFound := false
 			for i, line := range lines {
 				if strings.HasPrefix(line, "kernelopt=") {
-					lines[i] = fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
+					lines[i] = kerneloptPath
 				} else if strings.HasPrefix(line, "prefix=") {
-					lines[i] = fmt.Sprintf("prefix=%s/esxi", filename)
+					lines[i] = prefixPath
 					prefixFound = true
 				} else {
 					lines[i] = strings.ReplaceAll(line, "/", "")
 				}
 			}
 			if !prefixFound {
-				newLine := fmt.Sprintf("prefix=%s/esxi", filename)
+				newLine := prefixPath
 				lines = append(lines, newLine)
 			}
 			newContent := strings.Join(lines, "\n")
@@ -223,16 +230,16 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 			prefixFound := false
 			for i, line := range lines {
 				if strings.HasPrefix(line, "kernelopt=") {
-					lines[i] = fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
+					lines[i] = kerneloptPath
 				} else if strings.HasPrefix(line, "prefix=") {
-					lines[i] = "prefix=esxi"
+					lines[i] = prefixPath
 					prefixFound = true
 				} else {
 					lines[i] = strings.ReplaceAll(line, "/", "")
 				}
 			}
 			if !prefixFound {
-				newLine := "prefix=esxi"
+				newLine := prefixPath
 				lines = append(lines, newLine)
 			}
 			newContent := strings.Join(lines, "\n")

@@ -33,7 +33,10 @@ var (
 	//go:embed templates/esxi-ks.cfg
 	ksTemplatefile embed.FS
 	//go:embed templates/pxe*
-	pxelinux embed.FS
+	//go:embed templates/ipxe.efi
+	//go:embed templates/undionly.kpxe
+	//go:embed templates/autoexec.ipxe
+	ipxe embed.FS
 )
 
 type KS struct {
@@ -89,8 +92,8 @@ func (s *Server) getKsConfig(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "encountered unexpected problem", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
-	io.Copy(w, file)
+	file.Close()
+	http.ServeFile(w, r, ksFilePath)
 }
 
 func (s Server) deleteKsConfig(w http.ResponseWriter, r *http.Request) {
@@ -173,12 +176,14 @@ func (s *Server) createKsConfig(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.logger.Error("error saving MAC to IsoFilename mappings", zap.Error(err))
 		http.Error(w, "encountered unexpected problem", http.StatusBadRequest)
+		return
 	}
 
 	err = s.macAddressManager(ks.Macaddress, s.DHCPLeaseConfig)
 	if err != nil {
 		s.logger.Error("error saving MAC to IP mappings", zap.Error(err))
 		http.Error(w, "encountered unexpected problem", http.StatusBadRequest)
+		return
 	}
 
 	ksfolder := filepath.Join(s.KSDirPath, common.MacIPMap[ks.Macaddress].String())
@@ -315,60 +320,74 @@ type Response struct {
 	UploadedFiles map[string]string `json:"uploaded_esxi_list"`
 }
 
-func (s *Server) esxiVersionList() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var err error
-		uploadedFiles := make(map[string]string)
-		filepath.Walk(s.FileRootDirInfo.BootFileDirPath, func(path string, info os.FileInfo, err error) error {
+func (s *Server) esxiVersionList(w http.ResponseWriter, r *http.Request) {
+	var err error
+	uploadedFiles := make(map[string]string)
+	filepath.Walk(s.FileRootDirInfo.BootFileDirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			s.logger.Error("failed to find boot file directory", zap.Error(err))
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return err
+		}
+		if info.IsDir() && filepath.Dir(path) == s.FileRootDirInfo.BootFileDirPath {
+			xmlPath := filepath.Join(path, "esxi", "upgrade", "metadata.xml")
+			xmlFile, err := os.Open(xmlPath)
 			if err != nil {
-				s.logger.Error("failed to find boot file directory", zap.Error(err))
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				s.logger.Error("failed to open metadata.xml", zap.Error(err))
 				return err
 			}
-			if info.IsDir() && filepath.Dir(path) == s.FileRootDirInfo.BootFileDirPath {
-				xmlPath := filepath.Join(path, "esxi", "upgrade", "metadata.xml")
-				xmlFile, err := os.Open(xmlPath)
-				if err != nil {
-					s.logger.Error("failed to open metadata.xml", zap.Error(err))
-					return err
-				}
-				defer xmlFile.Close()
+			defer xmlFile.Close()
 
-				xmlData, err := io.ReadAll(xmlFile)
-				if err != nil {
-					s.logger.Error("failed to read metadata.xml", zap.Error(err))
-					return err
-				}
-
-				var vum common.Vum
-				decoder := xml.NewDecoder(bytes.NewReader(xmlData))
-				decoder.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
-					return input, nil
-				}
-				err = decoder.Decode(&vum)
-				if err != nil {
-					s.logger.Error("failed to decode metadata.xml", zap.Error(err))
-					return err
-				}
-				uploadedFiles[filepath.Base(path)] = vum.Product.EsxVersion
+			xmlData, err := io.ReadAll(xmlFile)
+			if err != nil {
+				s.logger.Error("failed to read metadata.xml", zap.Error(err))
+				return err
 			}
-			return nil
-		})
-		if err != nil {
-			s.logger.Error("failed to read esxi version files", zap.Error(err))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(
-			Response{
-				UploadedFiles: uploadedFiles,
-			},
-		); err != nil {
-			s.logger.Error("failed to generate response", zap.Error(err))
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			var vum common.Vum
+			decoder := xml.NewDecoder(bytes.NewReader(xmlData))
+			decoder.CharsetReader = func(charset string, input io.Reader) (io.Reader, error) {
+				return input, nil
+			}
+			err = decoder.Decode(&vum)
+			if err != nil {
+				s.logger.Error("failed to decode metadata.xml", zap.Error(err))
+				return err
+			}
+			uploadedFiles[filepath.Base(path)] = vum.Product.EsxVersion
 		}
+		return nil
+	})
+	if err != nil {
+		s.logger.Error("failed to read esxi version files", zap.Error(err))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(
+		Response{
+			UploadedFiles: uploadedFiles,
+		},
+	); err != nil {
+		s.logger.Error("failed to generate response", zap.Error(err))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (s *Server) iPxe(w http.ResponseWriter, r *http.Request) {
+	bootFilePath := mux.Vars(r)["path"]
+	// s.logger.Info(fmt.Sprintf("received GET request. %s", bootFilePath))
+	fullBootFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
+	file, err := os.Open(fullBootFilePath)
+	if err != nil {
+		s.logger.Error("error opening file", zap.Error(err))
+		http.Error(w, "encountered unexpected problem", http.StatusInternalServerError)
+		return
+	}
+	file.Close()
+	http.ServeFile(w, r, fullBootFilePath)
 }
 
 func initializeKsDir(dirPath string) (string, error) {
@@ -408,6 +427,26 @@ func (s *Server) ksIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) iPxeHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.iPxe(w, r)
+	default:
+		s.logger.Warn(fmt.Sprintf("method %s not allowed", r.Method))
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) esxiVersionListHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET":
+		s.esxiVersionList(w, r)
+	default:
+		s.logger.Warn(fmt.Sprintf("method %s not allowed", r.Method))
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
 func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, fileRootDirInfo *config.FileRootDirInfo) {
 	newKsDirPath, err := initializeKsDir(cfg.KsDirPath)
 	if err != nil {
@@ -436,7 +475,8 @@ func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, file
 	r.HandleFunc("/upload", srv.getUploadFileHandler(cfg))
 	r.HandleFunc("/ks", srv.ksHandler)
 	r.HandleFunc("/ks/{id}", srv.ksIDHandler)
-	r.HandleFunc("/esxi-versions", srv.esxiVersionList())
+	r.HandleFunc("/esxi-versions", srv.esxiVersionListHandler)
+	r.HandleFunc("/ipxe/{path:.*}", srv.iPxeHandler)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.APIServerPort), r); err != nil {
 		logger.Panic("shutting down API server...", zap.Error(err))
