@@ -376,7 +376,7 @@ func (s *Server) esxiVersionList(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) iPxe(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 	bootFilePath := mux.Vars(r)["path"]
 	// s.logger.Info(fmt.Sprintf("received GET request. %s", bootFilePath))
 	fullBootFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
@@ -427,10 +427,10 @@ func (s *Server) ksIDHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) iPxeHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) getInstallerHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
-	case "GET":
-		s.iPxe(w, r)
+	case "GET", "HEAD":
+		s.getInstaller(w, r)
 	default:
 		s.logger.Warn(fmt.Sprintf("method %s not allowed", r.Method))
 		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
@@ -476,7 +476,7 @@ func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, file
 	r.HandleFunc("/ks", srv.ksHandler)
 	r.HandleFunc("/ks/{id}", srv.ksIDHandler)
 	r.HandleFunc("/esxi-versions", srv.esxiVersionListHandler)
-	r.HandleFunc("/ipxe/{path:.*}", srv.iPxeHandler)
+	r.HandleFunc("/installer/{path:.*}", srv.getInstallerHandler)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.APIServerPort), r); err != nil {
 		logger.Panic("shutting down API server...", zap.Error(err))

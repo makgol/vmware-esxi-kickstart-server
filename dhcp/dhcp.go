@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"kickstart/common"
 	"kickstart/config"
+	"net/url"
 	"path/filepath"
 	"strconv"
 
@@ -88,12 +89,19 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 					bootFilename = filepath.Join(bootFilename, "undionly.kpxe")
 				}
 			case 6, 7, 9: //uefi
-				fmt.Println(clientArch)
 				if userClass != nil && string(userClass) == "iPXE" {
 					bootFilename = filepath.Join(bootFilename, "mboot.efi")
 				} else {
 					bootFilename = filepath.Join(bootFilename, "ipxe.efi")
 				}
+			case 16: //uefi http
+				url := &url.URL{
+					Scheme: "http",
+					Host:   serverIP.String(),
+					Path:   filepath.Join("installer", bootFilename, "mboot.efi"),
+				}
+				bootFilename = url.String()
+				resp.Options[dhcp4.OptVendorIdentifier] = []byte("HTTPClient")
 			default:
 				logger.Info(fmt.Sprintf("unknown client system architecture for MAC address: %s", req.HardwareAddr))
 				continue

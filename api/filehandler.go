@@ -191,7 +191,7 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 		}
 		defer dstFile.Close()
 
-		prefixPath := fmt.Sprintf("prefix=http://%s:%d/ipxe/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
+		prefixPath := fmt.Sprintf("prefix=http://%s:%d/installer/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
 		kerneloptPath := fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
 		if srcPath == bootcfgPath {
 			content, err := io.ReadAll(srcFile)
