@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"kickstart/common"
 	"kickstart/config"
+	"net/url"
 	"path/filepath"
 	"strconv"
 
@@ -78,19 +79,36 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 		}
 		logger.Info(fmt.Sprintf("assigned ip is %s ", ip))
 		clientArch := req.Options[93]
+		userClass := req.Options[77]
 		if clientArch != nil {
 			switch binary.BigEndian.Uint16(clientArch) {
 			case 0: //bios
-				bootFilename = filepath.Join(bootFilename, "pxelinux.0")
+				if userClass != nil && string(userClass) == "iPXE" {
+					bootFilename = filepath.Join(bootFilename, "pxelinux.0")
+				} else {
+					bootFilename = filepath.Join(bootFilename, "undionly.kpxe")
+				}
 			case 6, 7, 9: //uefi
-				bootFilename = filepath.Join(bootFilename, "mboot.efi")
+				if userClass != nil && string(userClass) == "iPXE" {
+					bootFilename = filepath.Join(bootFilename, "mboot.efi")
+				} else {
+					bootFilename = filepath.Join(bootFilename, "ipxe.efi")
+				}
+			case 16: //uefi http
+				url := &url.URL{
+					Scheme: "http",
+					Host:   serverIP.String(),
+					Path:   filepath.Join("installer", bootFilename, "mboot.efi"),
+				}
+				bootFilename = url.String()
+				resp.Options[dhcp4.OptVendorIdentifier] = []byte("HTTPClient")
 			default:
-				logger.Warn(fmt.Sprintf("unknown client system architecture for MAC address: %s", req.HardwareAddr))
+				logger.Info(fmt.Sprintf("unknown client system architecture for MAC address: %s", req.HardwareAddr))
 				continue
 			}
 			resp.BootFilename = bootFilename
 		} else {
-			logger.Warn(fmt.Sprintf("no client system architecture found for MAC address: %s", req.HardwareAddr))
+			logger.Info(fmt.Sprintf("no client system architecture found for MAC address: %s", req.HardwareAddr))
 		}
 
 		resp.Options[dhcp4.OptServerIdentifier] = serverIP

@@ -5,6 +5,7 @@ go 1.19
 require (
 	github.com/go-ozzo/ozzo-validation v3.6.0+incompatible
 	github.com/gorilla/mux v1.8.0
+	github.com/kdomanski/iso9660 v0.3.5
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/mdlayher/arp v0.0.0-20220512170110-6706a2966875
 	github.com/pin/tftp/v3 v3.0.0

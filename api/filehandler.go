@@ -9,28 +9,18 @@ import (
 	"kickstart/config"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
-	"time"
 
+	"github.com/kdomanski/iso9660"
 	"go.uber.org/zap"
 )
 
-func validateESXiISOFile(xmlPath string) error {
-	_, err := os.Stat(xmlPath)
-	if os.IsNotExist(err) {
-		return fmt.Errorf("target XML file does not exist: %s", xmlPath)
-	}
-
-	xmlFile, err := os.Open(xmlPath)
+func validateMetadata(xmlfile *iso9660.File) error {
+	xmlData, err := io.ReadAll(xmlfile.Reader())
 	if err != nil {
-		return fmt.Errorf("failed to open XML file: %v", err)
-	}
-	defer xmlFile.Close()
-
-	xmlData, err := io.ReadAll(xmlFile)
-	if err != nil {
-		return fmt.Errorf("failed to read XML file: %v", err)
+		return fmt.Errorf("failed to read XML Data: %v", err)
 	}
 
 	var vum common.Vum
@@ -40,106 +30,106 @@ func validateESXiISOFile(xmlPath string) error {
 	}
 	err = decoder.Decode(&vum)
 	if err != nil {
-		return fmt.Errorf("failed to parse XML file: %v", err)
+		return fmt.Errorf("failed to parse XML.")
 	}
 
 	if vum.Product.EsxName == "" {
-		return fmt.Errorf("ESX Version is not present in XML file: %s", xmlPath)
+		return fmt.Errorf("ESX Version is not present in XML.")
 	}
-
 	return nil
 }
 
-func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename string) error {
+func validateESXiISOFile(root *iso9660.File) error {
+	children, err := root.GetChildren()
+	if err != nil {
+		return err
+	}
+	for _, c := range children {
+		if c.Name() == "UPGRADE" {
+			upgrade, err := c.GetChildren()
+			if err != nil {
+				return err
+			}
+			for _, cc := range upgrade {
+				if cc.Name() == "METADATA.XML" {
+					err := validateMetadata(cc)
+					if err != nil {
+						return err
+					}
+					return nil
+				}
+			}
+			return fmt.Errorf("METADATA.XML not found")
+		}
+	}
+	return fmt.Errorf("UPGRADE directory not found")
+}
+
+func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename string) (err error) {
 	sourceISO := esxiFilePath
 	bootFileDir := s.FileRootDirInfo.BootFileDirPath
-	currentTime := time.Now().Format("20060102150405")
-	tmpDirPrefix := "iso-" + currentTime + "-"
-	tmpDir, err := os.MkdirTemp(s.FileRootDirInfo.UploadedISODirPath, tmpDirPrefix)
-	if err != nil {
-		s.logger.Error("failed to create temporary directory", zap.Error(err))
-		return err
-	}
-
-	defer os.RemoveAll(tmpDir)
-	err = os.Chmod(tmpDir, 0777)
-	if err != nil {
-		s.logger.Error("failed to change permissions of the temporary directory", zap.Error(err))
-		return err
-	}
-
-	isoRead := filepath.Join(tmpDir, "iso_read")
 	isoWriteRoot := filepath.Join(bootFileDir, filename)
 	isoWrite := filepath.Join(isoWriteRoot, "esxi")
 	biosBootDir := filepath.Join(isoWriteRoot, "pxelinux.cfg")
 
-	err = os.MkdirAll(isoRead, 0777)
+	defer func() {
+		if err != nil {
+			os.RemoveAll(isoWriteRoot)
+			os.RemoveAll(sourceISO)
+		}
+	}()
+
+	f, err := os.Open(sourceISO)
 	if err != nil {
-		s.logger.Error("failed to create iso read directory", zap.Error(err))
+		s.logger.Error("failed to open iso file", zap.Error(err))
+		return err
+	}
+	defer f.Close()
+
+	img, err := iso9660.OpenImage(f)
+	if err != nil {
+		s.logger.Error("failed to load iso file", zap.Error(err))
 		return err
 	}
 
-	err = os.Chmod(isoRead, 0777)
+	root, err := img.RootDir()
 	if err != nil {
-		s.logger.Error("failed to change premissions iso read directory", zap.Error(err))
+		s.logger.Error("failed to read iso root directory", zap.Error(err))
 		return err
 	}
 
-	err = exec.Command("mount", "-o", "loop", sourceISO, isoRead).Run()
+	err = validateESXiISOFile(root)
 	if err != nil {
-		s.logger.Error("failed to mount iso file", zap.Error(err))
+		s.logger.Error("failed to validate iso file", zap.Error(err))
 		return err
 	}
 
-	xmlPath := filepath.Join(isoRead, "upgrade", "metadata.xml")
-	err = validateESXiISOFile(xmlPath)
-	if err != nil {
-		s.logger.Error("failed to validate ESXi iso file", zap.Error(err))
-		exec.Command("umount", isoRead).Run()
-		os.RemoveAll(isoRead)
-		os.RemoveAll(esxiFilePath)
-		return err
-	}
-
-	err = os.MkdirAll(isoWriteRoot, 0777)
+	err = os.MkdirAll(isoWriteRoot, 0755)
 	if err != nil {
 		s.logger.Error("failed to create output root directory", zap.Error(err))
 		return err
 	}
 
-	err = os.Chmod(isoWriteRoot, 0777)
+	err = os.Chmod(isoWriteRoot, 0755)
 	if err != nil {
 		s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
 		return err
 	}
 
-	err = os.MkdirAll(biosBootDir, 0777)
+	err = os.MkdirAll(biosBootDir, 0755)
 	if err != nil {
 		s.logger.Error("failed to create output root directory", zap.Error(err))
 		return err
 	}
 
-	err = os.Chmod(biosBootDir, 0777)
+	err = os.Chmod(biosBootDir, 0755)
 	if err != nil {
 		s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
 		return err
 	}
 
-	err = copyDir(isoRead, isoWrite)
-	if err != nil {
-		s.logger.Error("failed to copy directory", zap.Error(err))
-		return err
-	}
-
-	err = exec.Command("umount", isoRead).Run()
-	if err != nil {
-		s.logger.Error("failed to umount iso file", zap.Error(err))
-		return err
-	}
-
-	err = os.RemoveAll(isoRead)
-	if err != nil {
-		s.logger.Error("failed to remove iso_read directory", zap.Error(err))
+	if err = ExtractImageToDirectory(f, isoWrite); err != nil {
+		s.logger.Error("failed to extract image", zap.Error(err))
 		return err
 	}
 
@@ -158,6 +148,9 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 
 	pxelinuxcfgPath := "templates/pxelinuxcfg"
 	pxelinux0Path := "templates/pxelinux.0"
+	ipxePath := "templates/ipxe.efi"
+	undionlyPath := "templates/undionly.kpxe"
+	autoexecPath := "templates/autoexec.ipxe"
 
 	filesToCopy := map[string]string{
 		bootcfgPath:     "boot.cfg",
@@ -167,15 +160,17 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 	embedToCopy := map[string]string{
 		pxelinuxcfgPath: "pxelinux.cfg/default",
 		pxelinux0Path:   "pxelinux.0",
+		ipxePath:        "ipxe.efi",
+		undionlyPath:    "undionly.kpxe",
+		autoexecPath:    "autoexec.ipxe",
 	}
 
 	// copy embed files
 	for srcFileName, dstFileName := range embedToCopy {
-		srcFileContent, err := pxelinux.ReadFile(srcFileName)
+		srcFileContent, err := ipxe.ReadFile(srcFileName)
 		if err != nil {
 			return err
 		}
-
 		if err = os.WriteFile(filepath.Join(src, dstFileName), srcFileContent, 0666); err != nil {
 			return err
 		}
@@ -190,12 +185,14 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 		defer srcFile.Close()
 
 		dstPath := filepath.Join(src, dstName)
-		dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0777)
+		dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 		if err != nil {
 			return err
 		}
 		defer dstFile.Close()
 
+		prefixPath := fmt.Sprintf("prefix=http://%s:%d/installer/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
+		kerneloptPath := fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
 		if srcPath == bootcfgPath {
 			content, err := io.ReadAll(srcFile)
 			if err != nil {
@@ -206,16 +203,16 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 			prefixFound := false
 			for i, line := range lines {
 				if strings.HasPrefix(line, "kernelopt=") {
-					lines[i] = fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
+					lines[i] = kerneloptPath
 				} else if strings.HasPrefix(line, "prefix=") {
-					lines[i] = fmt.Sprintf("prefix=%s/esxi", filename)
+					lines[i] = prefixPath
 					prefixFound = true
 				} else {
 					lines[i] = strings.ReplaceAll(line, "/", "")
 				}
 			}
 			if !prefixFound {
-				newLine := fmt.Sprintf("prefix=%s/esxi", filename)
+				newLine := prefixPath
 				lines = append(lines, newLine)
 			}
 			newContent := strings.Join(lines, "\n")
@@ -233,16 +230,16 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 			prefixFound := false
 			for i, line := range lines {
 				if strings.HasPrefix(line, "kernelopt=") {
-					lines[i] = fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
+					lines[i] = kerneloptPath
 				} else if strings.HasPrefix(line, "prefix=") {
-					lines[i] = "prefix=esxi"
+					lines[i] = prefixPath
 					prefixFound = true
 				} else {
 					lines[i] = strings.ReplaceAll(line, "/", "")
 				}
 			}
 			if !prefixFound {
-				newLine := "prefix=esxi"
+				newLine := prefixPath
 				lines = append(lines, newLine)
 			}
 			newContent := strings.Join(lines, "\n")
@@ -257,78 +254,11 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 			}
 		}
 
-		err = os.Chmod(dstPath, 0777)
+		err = os.Chmod(dstPath, 0755)
 		if err != nil {
 			return err
 		}
 	}
-	return nil
-}
-
-func copyDir(src, dst string) error {
-	_, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-
-	err = os.MkdirAll(dst, os.ModePerm)
-	if err != nil {
-		return err
-	}
-
-	err = os.Chmod(dst, 0777)
-	if err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-
-		if entry.IsDir() {
-			err = copyDir(srcPath, dstPath)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = copyFile(srcPath, dstPath)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-func copyFile(src, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0777)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	if err != nil {
-		return err
-	}
-
-	err = os.Chmod(dst, 0777)
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -351,4 +281,64 @@ func (s *Server) zipToIso(config *config.Config, esxiFilePath, filename string) 
 		return "", err
 	}
 	return isoFilePath, nil
+}
+
+func ExtractImageToDirectory(image io.ReaderAt, destination string) error {
+	img, err := iso9660.OpenImage(image)
+	if err != nil {
+		return err
+	}
+
+	root, err := img.RootDir()
+	if err != nil {
+		return err
+	}
+
+	return extract(root, destination)
+
+}
+
+func extract(f *iso9660.File, targetPath string) error {
+	if f.IsDir() {
+		existing, err := os.Open(targetPath)
+		if err == nil {
+			defer existing.Close()
+			s, err := existing.Stat()
+			if err != nil {
+				return err
+			}
+
+			if !s.IsDir() {
+				return fmt.Errorf("%s already exists and is a file", targetPath)
+			}
+		} else if os.IsNotExist(err) {
+			if err = os.Mkdir(targetPath, 0755); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
+
+		children, err := f.GetChildren()
+		if err != nil {
+			return err
+		}
+
+		for _, c := range children {
+			if err = extract(c, path.Join(targetPath, strings.ToLower(c.Name()))); err != nil {
+				return err
+			}
+		}
+	} else { // it's a file
+		newFile, err := os.Create(targetPath)
+		if err != nil {
+			return err
+		}
+		defer newFile.Close()
+		if _, err = io.Copy(newFile, f.Reader()); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

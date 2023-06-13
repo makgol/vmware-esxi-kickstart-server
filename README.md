@@ -44,25 +44,19 @@ The default values can be changed by setting the following environment variables
 | `DHCP_END_IP` | The second nic CIDR range end| Sets the end IP of the DHCP lease range. The start IP setting is also required. |
 
 ## Usage
-1. Increase the limit of file descriptors.  
-Please increase the maximum number of open files according to your environment if you use bios boot. Since approximately 200 files are opened per installation of a single Nested ESXi with bios boot, the default value of 1024 as a general linux os would not be sufficient if you are installing 10 units simultaneously.
-    ```bash
-    ulimit -n 50000
-    ```
-
-2. Execute the code.
+1. Execute the code.
     ```bash
     go run main.go
     ```
 
-3. Access the Web and upload the ESXi ISO or zip upgrade bundle file.
+2. Access the Web and upload the ESXi ISO or zip upgrade bundle file.
     ```
     http://<Web&API IP>:<API_SERVER_PORT>
     ```
 
-4. Create a Nested ESXi VM and note down the MAC address of the vnic for PXE boot. Do not start the VM at this point.
+3. Create a Nested ESXi VM and note down the MAC address of the vnic for PXE boot. Do not start the VM at this point.
 
-5. Send a POST request to the API for the VM created in step 3.
+4. Send a POST request to the API for the VM created in step 3.
 
     - **URI**: 
         ```
@@ -112,9 +106,9 @@ Please increase the maximum number of open files according to your environment i
       }
       ```
 
-6. Power on the Nested ESXi VM. The installation will begin automatically.
+5. Power on the Nested ESXi VM. The installation will begin automatically.
 
-7. After the installation is complete, send a DELETE request to delete the corresponding mac address and ip address mapping information.
+6. After the installation is complete, send a DELETE request to delete the corresponding mac address and ip address mapping information.
 
     Example DELETE request:
     ```
@@ -143,7 +137,7 @@ You can use the following API to verify the mapping of iso file names to ESXi ve
   ```
 
 ## Docker support
-This tool can also be run as a Docker container.The requirements remain unchanged even when using Docker. It is necessary to run in privileged mode and host network mode. It is recommended when using it in environments where you want to use an upgrade bundle and it is difficult to install PowerCLI to your server.
+This tool can also be run as a Docker container.The requirements remain unchanged even when using Docker. It is necessary to run in host network mode. It is recommended when using it in environments where you want to use an upgrade bundle and it is difficult to install PowerCLI to your server.
 1. Build the docker image
 ```
 docker build -t kickstart-server .
@@ -151,7 +145,7 @@ docker build -t kickstart-server .
 
 2. Run the docker container
 ```
-docker run --name kickstart-server --privileged --ulimit nofile=50000:50000 --restart=always --net=host -v <your_uploaded_iso_dir>:/work/files -itd kickstart-server
+docker run --name kickstart-server --restart=always --net=host -v $(pwd)/files:/work/files -itd kickstart-server
 ```
 
 ## Related tools
