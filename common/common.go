@@ -47,3 +47,17 @@ type YamlProduct struct {
 	EsxVersion     string `yaml:"esxVersion"`
 	EsxReleaseDate string `yaml:"releaseDate"`
 }
+
+type BootCfgTemplateData struct {
+	KSServerAddr string
+	KSServerPort string
+	Filename     string
+}
+
+func LoadBootCfgTemplateData(KSServerAddr, KSServerPort, Filename string) *BootCfgTemplateData {
+	return &BootCfgTemplateData{
+		KSServerAddr: KSServerAddr,
+		KSServerPort: KSServerPort,
+		Filename:     Filename,
+	}
+}

@@ -194,17 +194,15 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 func copyBootFiles(config *config.Config, bootFileDir, src, filename string, needUpdateMboot bool) error {
 	bootcfgPath := filepath.Join(src, "esxi/efi/boot/boot.cfg")
 	mbootPath := filepath.Join(src, "esxi/efi/boot/bootx64.efi")
-	biosBootCfgPath := filepath.Join(src, "esxi/boot.cfg")
 
 	filesToCopy := map[string]string{
-		bootcfgPath:     "boot.cfg",
-		mbootPath:       "mboot.efi",
-		biosBootCfgPath: "bios_boot.cfg",
+		bootcfgPath: "boot.cfg",
+		mbootPath:   "mboot.efi",
 	}
 
 	for srcPath, dstName := range filesToCopy {
 		switch srcPath {
-		case bootcfgPath, biosBootCfgPath:
+		case bootcfgPath:
 			srcFile, err := os.Open(srcPath)
 			if err != nil {
 				return err
@@ -218,8 +216,8 @@ func copyBootFiles(config *config.Config, bootFileDir, src, filename string, nee
 			}
 			defer dstFile.Close()
 
-			prefixPath := fmt.Sprintf("prefix=http://%s:%d/installer/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
-			kerneloptPath := fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
+			prefixPath := `prefix=http://{{.KSServerAddr}}:{{.KSServerPort}}/installer/{{.Filename}}/esxi`
+			kerneloptPath := `kernelopt=runweasel ks=http://{{.KSServerAddr}}:{{.KSServerPort}}/ks`
 			content, err := io.ReadAll(srcFile)
 			if err != nil {
 				return err

@@ -17,6 +17,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"text/template"
 	"time"
@@ -47,6 +48,7 @@ type Server struct {
 	DHCPLeaseConfig *config.DHCPLeaseConfig
 	FileRootDirInfo *config.FileRootDirInfo
 	logger          *zap.Logger
+	cfg             *config.Config
 }
 
 func (k KS) Validate() error {
@@ -374,13 +376,30 @@ func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 		common.MbootMutex.RLock()
 		defer common.MbootMutex.RUnlock()
 		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, filename)
+	case "boot.cfg":
+		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
+		tmpl, err := template.ParseFiles(fullBootFilePath)
+		if err != nil {
+			s.logger.Error("error opening file", zap.Error(err))
+			http.Error(w, "file not found", http.StatusNotFound)
+			return
+		}
+		dir := filepath.Dir(bootFilePath)
+		data := common.LoadBootCfgTemplateData(s.cfg.ServicePortAddr.String(), strconv.Itoa(s.cfg.APIServerPort), dir)
+		var buf bytes.Buffer
+		err = tmpl.Execute(&buf, data)
+		if err != nil {
+			s.logger.Error("failed to update boot file template", zap.Error(err))
+		}
+		http.ServeContent(w, r, "boot.cfg", time.Now(), bytes.NewReader(buf.Bytes()))
+		return
 	default:
 		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
 	}
 	file, err := os.Open(fullBootFilePath)
 	if err != nil {
 		s.logger.Error("error opening file", zap.Error(err))
-		http.Error(w, "encountered unexpected problem", http.StatusInternalServerError)
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 	file.Close()
@@ -456,6 +475,7 @@ func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, file
 		DHCPLeaseConfig: dhcpCfg,
 		FileRootDirInfo: fileRootDirInfo,
 		logger:          logger,
+		cfg:             cfg,
 	}
 	select {
 	case <-ctx.Done():
