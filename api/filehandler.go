@@ -75,15 +75,16 @@ func validateESXiISOFile(root *iso9660.File) (*common.YamlProduct, error) {
 
 func bootLoaderValidation(esxiInfo *common.YamlProduct, currentEsxiInfoFilePath string) bool {
 	file, err := os.Open(currentEsxiInfoFilePath)
+	defer file.Close()
 	if err != nil {
 		return true
 	}
-	defer file.Close()
 
 	var currentLatestEsxiInfo common.YamlProduct
 	if err := yaml.NewDecoder(file).Decode(&currentLatestEsxiInfo); err != nil {
 		return true
 	}
+
 	oldVersion, err := semver.NewVersion(currentLatestEsxiInfo.EsxVersion)
 	if err != nil {
 		return true
@@ -111,11 +112,12 @@ func bootLoaderValidation(esxiInfo *common.YamlProduct, currentEsxiInfoFilePath 
 }
 
 func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename string) (err error) {
+	common.IsoFileUploadMutex.Lock()
+	defer common.IsoFileUploadMutex.Unlock()
 	sourceISO := esxiFilePath
 	bootFileDir := s.FileRootDirInfo.BootFileDirPath
 	isoWriteRoot := filepath.Join(bootFileDir, filename)
 	isoWrite := filepath.Join(isoWriteRoot, "esxi")
-	biosBootDir := filepath.Join(isoWriteRoot, "pxelinux.cfg")
 
 	defer func() {
 		if err != nil {
@@ -150,8 +152,6 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 	}
 
 	currentEsxiInfoFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, "latest_release.yaml")
-	//currentEsxiInfo, err := loadCurrentEsxiInfoFile(currentEsxiInfoFilePath)
-	//fmt.Println(esxiInfo)
 
 	needUpdateMboot := bootLoaderValidation(esxiInfo, currentEsxiInfoFilePath)
 	if needUpdateMboot {
@@ -162,6 +162,7 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 		err = ioutil.WriteFile(currentEsxiInfoFilePath, newLatestEsxiInfo, 0644)
 		if err != nil {
 			s.logger.Error("failed to update yaml", zap.Error(err))
+			return err
 		}
 	}
 
@@ -172,18 +173,6 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 	}
 
 	err = os.Chmod(isoWriteRoot, 0755)
-	if err != nil {
-		s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
-		return err
-	}
-
-	err = os.MkdirAll(biosBootDir, 0755)
-	if err != nil {
-		s.logger.Error("failed to create output root directory", zap.Error(err))
-		return err
-	}
-
-	err = os.Chmod(biosBootDir, 0755)
 	if err != nil {
 		s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
 		return err
@@ -207,37 +196,12 @@ func copyBootFiles(config *config.Config, bootFileDir, src, filename string, nee
 	mbootPath := filepath.Join(src, "esxi/efi/boot/bootx64.efi")
 	biosBootCfgPath := filepath.Join(src, "esxi/boot.cfg")
 
-	pxelinuxcfgPath := "templates/pxelinuxcfg"
-	pxelinux0Path := "templates/pxelinux.0"
-	ipxePath := "templates/ipxe.efi"
-	undionlyPath := "templates/undionly.kpxe"
-	autoexecPath := "templates/autoexec.ipxe"
-
 	filesToCopy := map[string]string{
 		bootcfgPath:     "boot.cfg",
 		mbootPath:       "mboot.efi",
 		biosBootCfgPath: "bios_boot.cfg",
 	}
-	embedToCopy := map[string]string{
-		pxelinuxcfgPath: "pxelinux.cfg/default",
-		pxelinux0Path:   "pxelinux.0",
-		ipxePath:        "ipxe.efi",
-		undionlyPath:    "undionly.kpxe",
-		autoexecPath:    "autoexec.ipxe",
-	}
 
-	// copy embed files
-	for srcFileName, dstFileName := range embedToCopy {
-		srcFileContent, err := ipxe.ReadFile(srcFileName)
-		if err != nil {
-			return err
-		}
-		if err = os.WriteFile(filepath.Join(src, dstFileName), srcFileContent, 0644); err != nil {
-			return err
-		}
-	}
-
-	// copy uploaded boot files
 	for srcPath, dstName := range filesToCopy {
 		switch srcPath {
 		case bootcfgPath, biosBootCfgPath:
@@ -287,14 +251,14 @@ func copyBootFiles(config *config.Config, bootFileDir, src, filename string, nee
 			}
 
 		case mbootPath:
-			srcFileContent, err := ioutil.ReadFile(srcPath)
-			if err != nil {
-				return err
-			}
-			if err = os.WriteFile(filepath.Join(src, dstName), srcFileContent, 0644); err != nil {
-				return err
-			}
 			if needUpdateMboot {
+				srcFileContent, err := ioutil.ReadFile(srcPath)
+				if err != nil {
+					return err
+				}
+
+				common.MbootMutex.Lock()
+				defer common.MbootMutex.Unlock()
 				if err = os.WriteFile(filepath.Join(bootFileDir, dstName), srcFileContent, 0644); err != nil {
 					return err
 				}

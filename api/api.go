@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"context"
-	"embed"
 	"encoding/binary"
 	"encoding/json"
 	"encoding/xml"
@@ -27,16 +26,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/mdlayher/arp"
 	"go.uber.org/zap"
-)
-
-var (
-	//go:embed templates/esxi-ks.cfg
-	ksTemplatefile embed.FS
-	//go:embed templates/pxe*
-	//go:embed templates/ipxe.efi
-	//go:embed templates/undionly.kpxe
-	//go:embed templates/autoexec.ipxe
-	ipxe embed.FS
 )
 
 type KS struct {
@@ -165,7 +154,7 @@ func (s *Server) createKsConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	kscfg, err := template.ParseFS(ksTemplatefile, "templates/esxi-ks.cfg")
+	kscfg, err := template.ParseFS(common.GetKsTemplatefiles(), "templates/esxi-ks.cfg")
 	if err != nil {
 		s.logger.Error("failed to parse", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -378,12 +367,14 @@ func (s *Server) esxiVersionList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 	bootFilePath := mux.Vars(r)["path"]
-	//s.logger.Info(fmt.Sprintf("received GET request. %s", bootFilePath))
 	filename := filepath.Base(bootFilePath)
 	var fullBootFilePath string
-	if filename == "mboot.efi" {
+	switch filename {
+	case "mboot.efi":
+		common.MbootMutex.RLock()
+		defer common.MbootMutex.RUnlock()
 		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, filename)
-	} else {
+	default:
 		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
 	}
 	file, err := os.Open(fullBootFilePath)

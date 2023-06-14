@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"kickstart/common"
 	"kickstart/config"
 	"os"
@@ -22,28 +23,58 @@ type Server struct {
 }
 
 func (s *Server) getReadHandler() func(string, io.ReaderFrom) error {
-	return func(filename string, rf io.ReaderFrom) error {
-		fullPath := filepath.Join(s.fileRootDirInfo.BootFileDirPath, filename)
-		esxi6xPattern := fmt.Sprintf(`^%s/[0-9A-Fa-f]{2}-(([0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2})/boot.cfg$`, s.fileRootDirInfo.BootFileDirPath)
-		esxi6xRegexp := regexp.MustCompile(esxi6xPattern)
-		esxi6xMatches := esxi6xRegexp.FindStringSubmatch(fullPath)
-		if len(esxi6xMatches) > 1 {
-			macAddr := strings.Replace(esxi6xMatches[1], "-", ":", -1)
-			common.MacFileMapMutex.RLock()
-			bootFileVersion, found := common.MacFileMap[macAddr]
-			common.MacFileMapMutex.RUnlock()
-			if !found {
-				err := fmt.Errorf("mapped file not found")
+	return func(filenamePath string, rf io.ReaderFrom) error {
+		filename := filepath.Base(filenamePath)
+		var fullPath string
+		var file fs.File
+		var err error
+		switch filename {
+		case "autoexec.ipxe", "ipxe.efi", "pxelinux.0", "default", "undionly.kpxe":
+			ksTemplatefiles := common.GetKsTemplatefiles()
+			fullPath = filepath.Join("templates", filename)
+			file, err = ksTemplatefiles.Open(fullPath)
+			if err != nil {
 				s.logger.Error("failed to open boot file", zap.Error(err))
 				return err
 			}
-			fullPath = fmt.Sprintf("%s/%s/boot.cfg", s.fileRootDirInfo.BootFileDirPath, bootFileVersion)
-		}
-
-		file, err := os.Open(fullPath)
-		if err != nil {
-			s.logger.Error("failed to open boot file", zap.Error(err))
-			return err
+		case "mboot.efi":
+			common.MbootMutex.RLock()
+			defer common.MbootMutex.RUnlock()
+			fullPath = filepath.Join(s.fileRootDirInfo.BootFileDirPath, filename)
+			file, err = os.Open(fullPath)
+			if err != nil {
+				s.logger.Error("failed to open boot file", zap.Error(err))
+				return err
+			}
+		case "boot.cfg":
+			fullPath = filepath.Join(s.fileRootDirInfo.BootFileDirPath, filenamePath)
+			esxi6xPattern := fmt.Sprintf(`^%s/[0-9A-Fa-f]{2}-(([0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2})/boot.cfg$`, s.fileRootDirInfo.BootFileDirPath)
+			esxi6xRegexp := regexp.MustCompile(esxi6xPattern)
+			esxi6xMatches := esxi6xRegexp.FindStringSubmatch(fullPath)
+			if len(esxi6xMatches) > 1 {
+				macAddr := strings.Replace(esxi6xMatches[1], "-", ":", -1)
+				common.MacFileMapMutex.RLock()
+				bootFileVersion, found := common.MacFileMap[macAddr]
+				common.MacFileMapMutex.RUnlock()
+				if !found {
+					err = fmt.Errorf("mapped file not found")
+					s.logger.Error("failed to open boot file", zap.Error(err))
+					return err
+				}
+				fullPath = fmt.Sprintf("%s/%s/boot.cfg", s.fileRootDirInfo.BootFileDirPath, bootFileVersion)
+			}
+			file, err = os.Open(fullPath)
+			if err != nil {
+				s.logger.Error("failed to open boot file", zap.Error(err))
+				return err
+			}
+		default:
+			fullPath = filepath.Join(s.fileRootDirInfo.BootFileDirPath, filenamePath)
+			file, err = os.Open(fullPath)
+			if err != nil {
+				s.logger.Error("failed to open boot file", zap.Error(err))
+				return err
+			}
 		}
 		defer file.Close()
 
