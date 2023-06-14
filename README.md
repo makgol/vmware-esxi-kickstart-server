@@ -7,11 +7,11 @@ This tool is designed to assist in the automatic installation of Nested ESXi thr
 When the code is executed, Web&API, DHCP, and TFTP services are initiated.
 
 - **Web&API**
-  - The default port number is 80. It processes POST requests containing the information for the ESXi to be deployed, creates ks.cfg, determines the DHCP lease IP corresponding to the ESXi's MAC address, and retains the mapping information. It also maintains the mapping of ks.cfg and the MAC address, responding with the appropriate file to GET requests from the target IP. This service also handles the upload of ESXi ISO files. Uploaded ISOs are edited for PXE installation. Additionally, if you install powercli 13.0 or later on your Linux environment, you will also be able to upload upgrade bundle zip files. If an upgrade bundle is uploaded, the server will convert it into an ISO file targeting the standard patch, and perform editing for PXE installation.
+  - The default port number is 80. It processes POST requests containing the information for the ESXi to be deployed, creates ks.cfg, determines the DHCP lease IP corresponding to the ESXi's MAC address, and retains the mapping information. It also maintains the mapping of ks.cfg and the MAC address, responding with the appropriate file such as ks.cfg and ESXi's installer files to GET requests from the target IP. This service also handles the upload of ESXi ISO files. Uploaded ISOs are edited for PXE installation. Additionally, if you install powercli 13.0 or later on your Linux environment, you will also be able to upload upgrade bundle zip files. If an upgrade bundle is uploaded, the server will convert it into an ISO file targeting the standard patch, and perform editing for PXE installation.
 - **DHCP**
-  - Executes IP address lease for each MAC address according to the mapping information created by the API. The DHCP options include the bootfile of the ESXi version and the information of the TFTP server contained in the POST request received by the API. Discover messages from MAC addresses without mapping information are ignored. By default, the DHCP lease range is set to consider the entire CIDR range of the service port as a valid lease range. Although duplicate checks are performed using ARP, it is recommended that the network of the service port be dedicated to Nested ESXi.
+  - Executes IP address lease for each MAC address according to the mapping information created by the API. The DHCP options include the bootfile of the ESXi version and the information of the TFTP server contained in the POST request received by the API. This DHCP has the ability to automatically determine BIOS, UEFI, UEFI HTTP Boot and respond with the appropriate filename. Also, the discover messages from MAC addresses without mapping information are ignored. By default, the DHCP lease range is set to consider the entire CIDR range of the service port as a valid lease range. DHCP has ability to duplicate check by ARP and ignore unknown discover message as described above, so no harm to existing DHCP networks. However, it is recommended that the network of the service port be dedicated to Nested ESXi.
 - **TFTP**
-  - Responds with the ESXi files uploaded and edited to the Web.
+  - Used by iPXE. Respond with bootloader and boot config.
 
 By default, the tool checks the ethernet interfaces on the OS at startup and determines the first interface it finds as the API port and the second as the service port. The following are launched on each interface:
 
@@ -29,6 +29,14 @@ These default settings can be changed using environment variables.
 - Execution requires root user permissions.
 - Both interfaces should have IPv4 addresses assigned.
 - The network of the ESXi that boots with PXE must be on the same network as the service port.
+
+## Supported boot protocols and limitation
+iPXE and HTTP UEFI Boot are supported. These are automatically determined from the DHCP discover message, so no special tuning is required on the user side. However, the bootloader for iPXE included in this source code is not signed by Microsoft, so secure boot with iPXE will not work. HTTP UEFI boot supports secure boot, but if you want to install 6.x version with secure boot, you need upload any 7.0 or later ESXi iso to the web before doing so. This is a limitation of the boot loader included in the 6.x iso which does not support finding boot configs with relative paths. When upload the iso file to web, the file handler task compares Esxi version with the latest ESXi version currently uploaded and updates the bootloader shipped with the latest version iso for iPXE and HTTP UEFI boot.
+
+| Boot protocols | BIOS Boot | UEFI Boot | UEFI Secure Boot | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| iPXE | Supported | Supported | Not Supported ||
+| HTTP UEFI Boot | Not Supported | Supported | Supported* | *If installing 6.x with secure boot, need to upload a any 7.x or higher iso in advance to update to the corresponding bootloader. |
 
 ## Environment Variables
 The default values can be changed by setting the following environment variables:

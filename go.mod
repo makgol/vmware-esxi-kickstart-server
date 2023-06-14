@@ -11,9 +11,11 @@ require (
 	github.com/pin/tftp/v3 v3.0.0
 	go.uber.org/zap v1.24.0
 	go.universe.tf/netboot v0.0.0-20230225040044-0e2ca55deb50
+	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
+	github.com/Masterminds/semver/v3 v3.2.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20200108200545-475eaeb16496 // indirect
 	github.com/josharian/native v1.0.0 // indirect
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118 // indirect

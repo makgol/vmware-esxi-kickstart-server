@@ -1,7 +1,9 @@
 package common
 
 import (
+	"embed"
 	"encoding/xml"
+	"io/fs"
 	"net"
 	"sync"
 )
@@ -12,7 +14,23 @@ var (
 	MacFileMap             = make(map[string]string)
 	MacFileMapMutex        sync.RWMutex
 	MacAddressManagerMutex sync.Mutex
+	MbootMutex             sync.RWMutex
+	IsoFileUploadMutex     sync.RWMutex
 )
+
+var (
+	//go:embed templates/esxi-ks.cfg
+	//go:embed templates/pxelinux.0
+	//go:embed templates/ipxe.efi
+	//go:embed templates/undionly.kpxe
+	//go:embed templates/autoexec.ipxe
+	//go:embed templates/default
+	ksTemplatefiles embed.FS
+)
+
+func GetKsTemplatefiles() fs.FS {
+	return ksTemplatefiles
+}
 
 type Vum struct {
 	XMLName xml.Name `xml:"vum"`
@@ -20,6 +38,26 @@ type Vum struct {
 }
 
 type Product struct {
-	EsxVersion string `xml:"esxVersion"`
-	EsxName    string `xml:"name"`
+	EsxVersion     string `xml:"esxVersion"`
+	EsxName        string `xml:"name"`
+	EsxReleaseDate string `xml:"releaseDate"`
+}
+
+type YamlProduct struct {
+	EsxVersion     string `yaml:"esxVersion"`
+	EsxReleaseDate string `yaml:"releaseDate"`
+}
+
+type BootCfgTemplateData struct {
+	KSServerAddr string
+	KSServerPort string
+	Filename     string
+}
+
+func LoadBootCfgTemplateData(KSServerAddr, KSServerPort, Filename string) *BootCfgTemplateData {
+	return &BootCfgTemplateData{
+		KSServerAddr: KSServerAddr,
+		KSServerPort: KSServerPort,
+		Filename:     Filename,
+	}
 }
