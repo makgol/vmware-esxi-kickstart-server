@@ -378,8 +378,14 @@ func (s *Server) esxiVersionList(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 	bootFilePath := mux.Vars(r)["path"]
-	// s.logger.Info(fmt.Sprintf("received GET request. %s", bootFilePath))
-	fullBootFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
+	//s.logger.Info(fmt.Sprintf("received GET request. %s", bootFilePath))
+	filename := filepath.Base(bootFilePath)
+	var fullBootFilePath string
+	if filename == "mboot.efi" {
+		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, filename)
+	} else {
+		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
+	}
 	file, err := os.Open(fullBootFilePath)
 	if err != nil {
 		s.logger.Error("error opening file", zap.Error(err))

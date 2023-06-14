@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"kickstart/common"
 	"kickstart/config"
 	"os"
@@ -12,15 +13,18 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/kdomanski/iso9660"
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v2"
 )
 
-func validateMetadata(xmlfile *iso9660.File) error {
+func validateMetadata(xmlfile *iso9660.File) (*common.YamlProduct, error) {
 	xmlData, err := io.ReadAll(xmlfile.Reader())
 	if err != nil {
-		return fmt.Errorf("failed to read XML Data: %v", err)
+		return nil, fmt.Errorf("failed to read XML Data: %v", err)
 	}
 
 	var vum common.Vum
@@ -30,39 +34,80 @@ func validateMetadata(xmlfile *iso9660.File) error {
 	}
 	err = decoder.Decode(&vum)
 	if err != nil {
-		return fmt.Errorf("failed to parse XML.")
+		return nil, fmt.Errorf("failed to parse XML.")
 	}
 
 	if vum.Product.EsxName == "" {
-		return fmt.Errorf("ESX Version is not present in XML.")
+		return nil, fmt.Errorf("ESX Version is not present in XML.")
 	}
-	return nil
+	esxiInfo := &common.YamlProduct{
+		EsxVersion:     vum.Product.EsxVersion,
+		EsxReleaseDate: vum.Product.EsxReleaseDate,
+	}
+	return esxiInfo, nil
 }
 
-func validateESXiISOFile(root *iso9660.File) error {
+func validateESXiISOFile(root *iso9660.File) (*common.YamlProduct, error) {
 	children, err := root.GetChildren()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, c := range children {
 		if c.Name() == "UPGRADE" {
 			upgrade, err := c.GetChildren()
 			if err != nil {
-				return err
+				return nil, err
 			}
 			for _, cc := range upgrade {
 				if cc.Name() == "METADATA.XML" {
-					err := validateMetadata(cc)
+					esxiInfo, err := validateMetadata(cc)
 					if err != nil {
-						return err
+						return nil, err
 					}
-					return nil
+					return esxiInfo, nil
 				}
 			}
-			return fmt.Errorf("METADATA.XML not found")
+			return nil, fmt.Errorf("METADATA.XML not found")
 		}
 	}
-	return fmt.Errorf("UPGRADE directory not found")
+	return nil, fmt.Errorf("UPGRADE directory not found")
+}
+
+func bootLoaderValidation(esxiInfo *common.YamlProduct, currentEsxiInfoFilePath string) bool {
+	file, err := os.Open(currentEsxiInfoFilePath)
+	if err != nil {
+		return true
+	}
+	defer file.Close()
+
+	var currentLatestEsxiInfo common.YamlProduct
+	if err := yaml.NewDecoder(file).Decode(&currentLatestEsxiInfo); err != nil {
+		return true
+	}
+	oldVersion, err := semver.NewVersion(currentLatestEsxiInfo.EsxVersion)
+	if err != nil {
+		return true
+	}
+	newVersion, err := semver.NewVersion(esxiInfo.EsxVersion)
+	if err != nil {
+		return false
+	}
+	switch {
+	case newVersion.GreaterThan(oldVersion):
+		return true
+	case newVersion.Equal(oldVersion):
+		oldDate, err := time.Parse(time.RFC3339, currentLatestEsxiInfo.EsxReleaseDate)
+		if err != nil {
+			return true
+		}
+		newDate, err := time.Parse(time.RFC3339, esxiInfo.EsxReleaseDate)
+		if err != nil {
+			return false
+		}
+		return newDate.After(oldDate)
+	default:
+		return false
+	}
 }
 
 func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename string) (err error) {
@@ -98,10 +143,26 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 		return err
 	}
 
-	err = validateESXiISOFile(root)
+	esxiInfo, err := validateESXiISOFile(root)
 	if err != nil {
 		s.logger.Error("failed to validate iso file", zap.Error(err))
 		return err
+	}
+
+	currentEsxiInfoFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, "latest_release.yaml")
+	//currentEsxiInfo, err := loadCurrentEsxiInfoFile(currentEsxiInfoFilePath)
+	//fmt.Println(esxiInfo)
+
+	needUpdateMboot := bootLoaderValidation(esxiInfo, currentEsxiInfoFilePath)
+	if needUpdateMboot {
+		newLatestEsxiInfo, err := yaml.Marshal(esxiInfo)
+		if err != nil {
+			s.logger.Error("failed to read yaml", zap.Error(err))
+		}
+		err = ioutil.WriteFile(currentEsxiInfoFilePath, newLatestEsxiInfo, 0644)
+		if err != nil {
+			s.logger.Error("failed to update yaml", zap.Error(err))
+		}
 	}
 
 	err = os.MkdirAll(isoWriteRoot, 0755)
@@ -133,7 +194,7 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 		return err
 	}
 
-	err = copyBootFiles(config, isoWriteRoot, filename)
+	err = copyBootFiles(config, bootFileDir, isoWriteRoot, filename, needUpdateMboot)
 	if err != nil {
 		s.logger.Error("failed to copy boot files", zap.Error(err))
 		return err
@@ -141,7 +202,7 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 	return nil
 }
 
-func copyBootFiles(config *config.Config, src, filename string) error {
+func copyBootFiles(config *config.Config, bootFileDir, src, filename string, needUpdateMboot bool) error {
 	bootcfgPath := filepath.Join(src, "esxi/efi/boot/boot.cfg")
 	mbootPath := filepath.Join(src, "esxi/efi/boot/bootx64.efi")
 	biosBootCfgPath := filepath.Join(src, "esxi/boot.cfg")
@@ -171,34 +232,34 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 		if err != nil {
 			return err
 		}
-		if err = os.WriteFile(filepath.Join(src, dstFileName), srcFileContent, 0666); err != nil {
+		if err = os.WriteFile(filepath.Join(src, dstFileName), srcFileContent, 0644); err != nil {
 			return err
 		}
 	}
 
 	// copy uploaded boot files
 	for srcPath, dstName := range filesToCopy {
-		srcFile, err := os.Open(srcPath)
-		if err != nil {
-			return err
-		}
-		defer srcFile.Close()
+		switch srcPath {
+		case bootcfgPath, biosBootCfgPath:
+			srcFile, err := os.Open(srcPath)
+			if err != nil {
+				return err
+			}
+			defer srcFile.Close()
 
-		dstPath := filepath.Join(src, dstName)
-		dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-		if err != nil {
-			return err
-		}
-		defer dstFile.Close()
+			dstPath := filepath.Join(src, dstName)
+			dstFile, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			if err != nil {
+				return err
+			}
+			defer dstFile.Close()
 
-		prefixPath := fmt.Sprintf("prefix=http://%s:%d/installer/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
-		kerneloptPath := fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
-		if srcPath == bootcfgPath {
+			prefixPath := fmt.Sprintf("prefix=http://%s:%d/installer/%s/esxi", config.ServicePortAddr, config.APIServerPort, filename)
+			kerneloptPath := fmt.Sprintf("kernelopt=runweasel ks=http://%s:%d/ks", config.ServicePortAddr, config.APIServerPort)
 			content, err := io.ReadAll(srcFile)
 			if err != nil {
 				return err
 			}
-
 			lines := strings.Split(string(content), "\n")
 			prefixFound := false
 			for i, line := range lines {
@@ -220,43 +281,24 @@ func copyBootFiles(config *config.Config, src, filename string) error {
 			if err != nil {
 				return err
 			}
-		} else if srcPath == biosBootCfgPath {
-			content, err := io.ReadAll(srcFile)
+			err = os.Chmod(dstPath, 0644)
 			if err != nil {
 				return err
 			}
 
-			lines := strings.Split(string(content), "\n")
-			prefixFound := false
-			for i, line := range lines {
-				if strings.HasPrefix(line, "kernelopt=") {
-					lines[i] = kerneloptPath
-				} else if strings.HasPrefix(line, "prefix=") {
-					lines[i] = prefixPath
-					prefixFound = true
-				} else {
-					lines[i] = strings.ReplaceAll(line, "/", "")
+		case mbootPath:
+			srcFileContent, err := ioutil.ReadFile(srcPath)
+			if err != nil {
+				return err
+			}
+			if err = os.WriteFile(filepath.Join(src, dstName), srcFileContent, 0644); err != nil {
+				return err
+			}
+			if needUpdateMboot {
+				if err = os.WriteFile(filepath.Join(bootFileDir, dstName), srcFileContent, 0644); err != nil {
+					return err
 				}
 			}
-			if !prefixFound {
-				newLine := prefixPath
-				lines = append(lines, newLine)
-			}
-			newContent := strings.Join(lines, "\n")
-			_, err = dstFile.WriteString(newContent)
-			if err != nil {
-				return err
-			}
-		} else {
-			_, err = io.Copy(dstFile, srcFile)
-			if err != nil {
-				return err
-			}
-		}
-
-		err = os.Chmod(dstPath, 0755)
-		if err != nil {
-			return err
 		}
 	}
 	return nil

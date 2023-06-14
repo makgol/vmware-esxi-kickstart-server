@@ -22,4 +22,10 @@ type Vum struct {
 type Product struct {
 	EsxVersion string `xml:"esxVersion"`
 	EsxName    string `xml:"name"`
+	EsxReleaseDate    string `xml:"releaseDate"`
+}
+
+type YamlProduct struct {
+	EsxVersion string `yaml:"esxVersion"`
+	EsxReleaseDate    string `yaml:"releaseDate"`
 }
