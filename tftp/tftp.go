@@ -79,6 +79,7 @@ func (s *Server) getReadHandler() func(string, io.ReaderFrom) error {
 			err = tmpl.Execute(&buf, data)
 			if err != nil {
 				s.logger.Error("failed to update boot file template", zap.Error(err))
+				return err
 			}
 			rf.ReadFrom(bytes.NewReader(buf.Bytes()))
 			if err != nil {
