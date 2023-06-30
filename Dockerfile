@@ -5,7 +5,7 @@ WORKDIR /gobuild
 COPY . .
 
 RUN go mod download && \
-    go build -o kickstart-server main.go
+    CGO_ENABLED=0 go build -o kickstart-server main.go
 
 FROM python:3.7-slim-bullseye as pybuild
 
