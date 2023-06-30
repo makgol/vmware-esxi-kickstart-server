@@ -7,21 +7,20 @@ COPY . .
 RUN go mod download && \
     go build -o kickstart-server main.go
 
-FROM python:3.7-slim as pybuild
+FROM python:3.7-slim-bullseye as pybuild
 
 WORKDIR /pybuild
 
-RUN apt-get update && \
-    apt-get install -y wget apt-transport-https software-properties-common && \
-    wget -q "https://packages.microsoft.com/config/debian/$(lsb_release -rs)/packages-microsoft-prod.deb" && \
-    dpkg -i packages-microsoft-prod.deb && \
-    rm packages-microsoft-prod.deb && \
-    apt-get update && \ 
-    apt-get -y install powershell && \
+RUN apt update && \
+    apt install -y curl gnupg apt-transport-https && \
+    curl https://packages.microsoft.com/keys/microsoft.asc | gpg --yes --dearmor --output /usr/share/keyrings/microsoft.gpg && \
+    sh -c 'echo "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft.gpg] https://packages.microsoft.com/repos/microsoft-debian-bullseye-prod bullseye main" > /etc/apt/sources.list.d/microsoft.list' && \
+    apt update && \
+    apt install -y powershell && \
     pwsh -c Install-Module VMware.PowerCLI -Force && \
     pip install --no-cache-dir six psutil lxml pyopenssl
 
-FROM python:3.7-slim
+FROM python:3.7-slim-bullseye
 
 WORKDIR /work
 
