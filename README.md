@@ -88,6 +88,7 @@ The default values can be changed by setting the following environment variables
         | `keyboard` | string | no | Keyboard layout of the OS, the default value is English(`US Default`). |
         | `isofilename` | string | yes | Filename of the ISO to be installed. It must have the same name as the uploaded ISO file. |
         | `cli` | array | no | CLI commands to be executed after installation. Please note that these will not work if Secure Boot is enabled. |
+        | `notvmpgcreate` | boolean | no | Disable create default VM Network port group, the default value is false. |
 
     - **Example POST request**:
       ```
