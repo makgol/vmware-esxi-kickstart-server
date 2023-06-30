@@ -30,17 +30,18 @@ import (
 )
 
 type KS struct {
-	Macaddress  string   `json:"macaddress"`
-	Password    string   `json:"password"`
-	IP          string   `json:"ip"`
-	Netmask     string   `json:"netmask"`
-	Gateway     string   `json:"gateway"`
-	Nameserver  string   `json:"nameserver"`
-	Hostname    string   `json:"hostname"`
-	VLANID      *int     `json:"vlanid"`
-	CLI         []string `json:"cli"`
-	Keyboard    string   `json:"keyboard"`
-	ISOFilename string   `json:"isofilename"`
+	Macaddress    string   `json:"macaddress"`
+	Password      string   `json:"password"`
+	IP            string   `json:"ip"`
+	Netmask       string   `json:"netmask"`
+	Gateway       string   `json:"gateway"`
+	Nameserver    string   `json:"nameserver"`
+	Hostname      string   `json:"hostname"`
+	VLANID        *int     `json:"vlanid"`
+	CLI           []string `json:"cli"`
+	Keyboard      string   `json:"keyboard"`
+	ISOFilename   string   `json:"isofilename"`
+	NotVmPgCreate bool     `json:"notvmpgcreate"`
 }
 
 type Server struct {
@@ -64,6 +65,7 @@ func (k KS) Validate() error {
 		validation.Field(&k.CLI, validation.Each(is.ASCII.Error("invalid string type"))),
 		validation.Field(&k.Keyboard, is.ASCII.Error("invalid string type")),
 		validation.Field(&k.ISOFilename, validation.Required),
+		validation.Field(&k.NotVmPgCreate),
 	)
 }
 
