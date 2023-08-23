@@ -66,8 +66,8 @@ func (s *Server) getReadHandler() func(string, io.ReaderFrom) error {
 					s.logger.Error("failed to open boot file", zap.Error(err))
 					return err
 				}
-				fullPath = fmt.Sprintf("%s/%s/boot.cfg", s.fileRootDirInfo.BootFileDirPath, bootFileVersion)
-				dir = bootFileVersion
+				fullPath = fmt.Sprintf("%s/%s/boot.cfg", s.fileRootDirInfo.BootFileDirPath, bootFileVersion[0])
+				dir = bootFileVersion[0]
 			}
 			tmpl, err := template.ParseFiles(fullPath)
 			if err != nil {

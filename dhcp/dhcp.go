@@ -62,11 +62,21 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 		}
 
 		common.MacFileMapMutex.RLock()
-		bootFilename, found := common.MacFileMap[req.HardwareAddr.String()]
+		fileMap, found := common.MacFileMap[req.HardwareAddr.String()]
 		common.MacFileMapMutex.RUnlock()
 		if !found {
 			logger.Warn(fmt.Sprintf("no ISO file found for MAC address: %s", req.HardwareAddr))
 			continue
+		}
+		var mainBootLoader string
+		var httpUefiPath string
+		switch fileMap[1] {
+		case "rhel":
+			mainBootLoader = "bootx64.efi"
+			httpUefiPath = "rhelinstaller"
+		case "esxi":
+			mainBootLoader = "mboot.efi"
+			httpUefiPath = "installer"
 		}
 
 		resp := &dhcp4.Packet{
@@ -80,25 +90,26 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 		logger.Info(fmt.Sprintf("assigned ip is %s ", ip))
 		clientArch := req.Options[93]
 		userClass := req.Options[77]
+		var bootFilename string
 		if clientArch != nil {
 			switch binary.BigEndian.Uint16(clientArch) {
 			case 0: //bios
 				if userClass != nil && string(userClass) == "iPXE" {
-					bootFilename = filepath.Join(bootFilename, "pxelinux.0")
+					bootFilename = filepath.Join(fileMap[0], "pxelinux.0")
 				} else {
-					bootFilename = filepath.Join(bootFilename, "undionly.kpxe")
+					bootFilename = filepath.Join(fileMap[0], "undionly.kpxe")
 				}
 			case 6, 7, 9: //uefi
 				if userClass != nil && string(userClass) == "iPXE" {
-					bootFilename = filepath.Join(bootFilename, "mboot.efi")
+					bootFilename = filepath.Join(fileMap[0], mainBootLoader)
 				} else {
-					bootFilename = filepath.Join(bootFilename, "ipxe.efi")
+					bootFilename = filepath.Join(fileMap[0], "ipxe.efi")
 				}
 			case 16: //uefi http
 				url := &url.URL{
 					Scheme: "http",
 					Host:   serverIP.String(),
-					Path:   filepath.Join("installer", bootFilename, "mboot.efi"),
+					Path:   filepath.Join(httpUefiPath, fileMap[0], mainBootLoader),
 				}
 				bootFilename = url.String()
 				resp.Options[dhcp4.OptVendorIdentifier] = []byte("HTTPClient")

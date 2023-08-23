@@ -55,13 +55,15 @@ func LoadDHCPLeaseConfig(config *Config, startIP, endIP net.IP) *DHCPLeaseConfig
 }
 
 type FileRootDirInfo struct {
-	BootFileDirPath    string
-	UploadedISODirPath string
+	BootFileDirPath     string
+	UploadedISODirPath  string
+	RhelBootFileDirPath string
 }
 
-func LoadDirInfo(bootFileDir, uploadedISODir string) *FileRootDirInfo {
+func LoadDirInfo(bootFileDir, uploadedISODir, rhelBootFileDir string) *FileRootDirInfo {
 	return &FileRootDirInfo{
 		BootFileDirPath:    bootFileDir,
 		UploadedISODirPath: uploadedISODir,
+		RhelBootFileDirPath: rhelBootFileDir,
 	}
 }

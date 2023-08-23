@@ -10,19 +10,70 @@ import (
 	"kickstart/config"
 	"os"
 	"os/exec"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
+	"bufio"
+	"reflect"
+	"io/fs"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/kdomanski/iso9660"
+	"github.com/diskfs/go-diskfs"
+	"github.com/diskfs/go-diskfs/filesystem"
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v2"
 )
 
-func validateMetadata(xmlfile *iso9660.File) (*common.YamlProduct, error) {
-	xmlData, err := io.ReadAll(xmlfile.Reader())
+
+func rhelValidateMetadata(path string, fs filesystem.FileSystem) (*common.YamlProduct, error) {
+	file, err := fs.OpenFile(path, os.O_RDONLY)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+    treeinfoData, err := io.ReadAll(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read treeinfo Data: %v", err)
+	}
+    
+	var family, version string
+    scanner := bufio.NewScanner(bytes.NewReader(treeinfoData))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "family =") {
+			parts := strings.Split(line, " = ")
+			if len(parts) > 1 {
+				family = parts[1]
+			}
+		} else if strings.HasPrefix(line, "version =") {
+			parts := strings.Split(line, " = ")
+			if len(parts) > 1 {
+				version = parts[1]
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan treeinfo data: %v", err)
+	}
+	if family == "" || version == "" {
+		return nil, fmt.Errorf("RHEL family or version is not present in treeinfo.")
+	}
+	rhelInfo := &common.YamlProduct{
+		RhelFamily: family,
+		RhelVersion: version,
+	}
+	return rhelInfo, nil
+}
+
+func validateMetadata(path string, fs filesystem.FileSystem) (*common.YamlProduct, error) {
+	file, err := fs.OpenFile(path, os.O_RDONLY)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open file: %v", err)
+	}
+	defer file.Close()
+
+    xmlData, err := io.ReadAll(file)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read XML Data: %v", err)
 	}
@@ -47,27 +98,36 @@ func validateMetadata(xmlfile *iso9660.File) (*common.YamlProduct, error) {
 	return esxiInfo, nil
 }
 
-func validateESXiISOFile(root *iso9660.File) (*common.YamlProduct, error) {
-	children, err := root.GetChildren()
+func validateESXiISOFile(path string, fs filesystem.FileSystem) (*common.YamlProduct, error) {
+    files, err := fs.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range children {
-		if c.Name() == "UPGRADE" {
-			upgrade, err := c.GetChildren()
+	for _, file := range files {
+		switch strings.ToLower(file.Name()) {
+        case "upgrade":
+			fullpath := filepath.Join(path, file.Name())
+			cfiles, err := fs.ReadDir(fullpath)
 			if err != nil {
 				return nil, err
 			}
-			for _, cc := range upgrade {
-				if cc.Name() == "METADATA.XML" {
-					esxiInfo, err := validateMetadata(cc)
+			for _, cfile := range cfiles {
+				if strings.ToLower(cfile.Name()) == "metadata.xml" {
+					cfullpath := filepath.Join(fullpath, cfile.Name())
+					esxiInfo, err := validateMetadata(cfullpath, fs)
 					if err != nil {
 						return nil, err
 					}
 					return esxiInfo, nil
 				}
 			}
-			return nil, fmt.Errorf("METADATA.XML not found")
+		case ".treeinfo":
+			fullpath := filepath.Join(path, file.Name())
+			rhelInfo, err := rhelValidateMetadata(fullpath, fs)
+			if err != nil {
+				return nil, err
+			}
+			return rhelInfo, nil
 		}
 	}
 	return nil, fmt.Errorf("UPGRADE directory not found")
@@ -126,67 +186,116 @@ func (s *Server) ExtractISOfiles(config *config.Config, esxiFilePath, filename s
 		}
 	}()
 
-	f, err := os.Open(sourceISO)
+	f, err := diskfs.Open(sourceISO)
 	if err != nil {
 		s.logger.Error("failed to open iso file", zap.Error(err))
 		return err
 	}
-	defer f.Close()
+	fmt.Println(reflect.TypeOf(f))
 
-	img, err := iso9660.OpenImage(f)
+	img, err := f.GetFilesystem(0)
 	if err != nil {
 		s.logger.Error("failed to load iso file", zap.Error(err))
 		return err
 	}
 
-	root, err := img.RootDir()
-	if err != nil {
-		s.logger.Error("failed to read iso root directory", zap.Error(err))
-		return err
-	}
-
-	esxiInfo, err := validateESXiISOFile(root)
+	esxiInfo, err := validateESXiISOFile("/" ,img)
 	if err != nil {
 		s.logger.Error("failed to validate iso file", zap.Error(err))
 		return err
 	}
+	fmt.Println(esxiInfo.EsxVersion)
+	fmt.Println(esxiInfo.EsxReleaseDate)
+    fmt.Println(esxiInfo.RhelFamily)
+    fmt.Println(esxiInfo.RhelVersion)
+    if esxiInfo.EsxVersion != ""{
+	    currentEsxiInfoFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, "latest_release.yaml")
 
-	currentEsxiInfoFilePath := filepath.Join(s.FileRootDirInfo.BootFileDirPath, "latest_release.yaml")
+	    needUpdateMboot := bootLoaderValidation(esxiInfo, currentEsxiInfoFilePath)
+	    if needUpdateMboot {
+		    newLatestEsxiInfo, err := yaml.Marshal(esxiInfo)
+		    if err != nil {
+			    s.logger.Error("failed to read yaml", zap.Error(err))
+		    }
+		    err = ioutil.WriteFile(currentEsxiInfoFilePath, newLatestEsxiInfo, 0644)
+		    if err != nil {
+			    s.logger.Error("failed to update yaml", zap.Error(err))
+			    return err
+		    }
+	    }
+	
+	    err = os.MkdirAll(isoWriteRoot, 0755)
+	    if err != nil {
+		    s.logger.Error("failed to create output root directory", zap.Error(err))
+		    return err
+	    }
 
-	needUpdateMboot := bootLoaderValidation(esxiInfo, currentEsxiInfoFilePath)
-	if needUpdateMboot {
-		newLatestEsxiInfo, err := yaml.Marshal(esxiInfo)
+	    err = os.Chmod(isoWriteRoot, 0755)
+	    if err != nil {
+		    s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
+		    return err
+	    }
+
+	    if err = extractImages("/", isoWrite, img); err != nil {
+	        s.logger.Error("failed to extract image", zap.Error(err))
+	        return err
+	    }
+
+    	err = copyBootFiles(config, bootFileDir, isoWriteRoot, filename, needUpdateMboot)
+	    if err != nil {
+		    s.logger.Error("failed to copy boot files", zap.Error(err))
+		    return err
+	    }
+	} else if esxiInfo.RhelFamily != ""{
+		bootFileDir = s.FileRootDirInfo.RhelBootFileDirPath
+		isoWriteRoot = filepath.Join(bootFileDir, filename)
+		isoWrite =  filepath.Join(isoWriteRoot, "rhel")
+
+		err = os.MkdirAll(isoWriteRoot, 0755)
+	    if err != nil {
+		    s.logger.Error("failed to create output root directory", zap.Error(err))
+		    return err
+	    }
+
+		err = os.Chmod(isoWriteRoot, 0755)
+	    if err != nil {
+		    s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
+		    return err
+	    }
+
+		if err = extractImages("/", isoWrite, img); err != nil {
+	        s.logger.Error("failed to extract image", zap.Error(err))
+	        return err
+	    }
+
+		
+		err = copyRhelFiles(config, bootFileDir, isoWriteRoot, filename)
+	    if err != nil {
+		    s.logger.Error("failed to copy boot files", zap.Error(err))
+		    return err
+	    }
+	}
+	return nil
+}
+
+func copyRhelFiles(config *config.Config, bootFileDir, src, filename string) error {
+ 	bootx64Path := filepath.Join(src, "rhel/efi/boot/bootx64.efi")
+	grubx64Path := filepath.Join(src, "rhel/efi/boot/grubx64.efi")
+
+	filesToCopy := map[string]string{
+		bootx64Path: "bootx64.efi",
+		grubx64Path: "grubx64.efi",
+	}
+
+	for srcPath, dstName := range filesToCopy {
+		dstPath := filepath.Join(src, dstName)
+		srcFileContent, err := ioutil.ReadFile(srcPath)
 		if err != nil {
-			s.logger.Error("failed to read yaml", zap.Error(err))
-		}
-		err = ioutil.WriteFile(currentEsxiInfoFilePath, newLatestEsxiInfo, 0644)
-		if err != nil {
-			s.logger.Error("failed to update yaml", zap.Error(err))
 			return err
 		}
-	}
-
-	err = os.MkdirAll(isoWriteRoot, 0755)
-	if err != nil {
-		s.logger.Error("failed to create output root directory", zap.Error(err))
-		return err
-	}
-
-	err = os.Chmod(isoWriteRoot, 0755)
-	if err != nil {
-		s.logger.Error("failed to change permissions of the output root directory", zap.Error(err))
-		return err
-	}
-
-	if err = ExtractImageToDirectory(f, isoWrite); err != nil {
-		s.logger.Error("failed to extract image", zap.Error(err))
-		return err
-	}
-
-	err = copyBootFiles(config, bootFileDir, isoWriteRoot, filename, needUpdateMboot)
-	if err != nil {
-		s.logger.Error("failed to copy boot files", zap.Error(err))
-		return err
+		if err = os.WriteFile(dstPath, srcFileContent, 0644); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -288,22 +397,29 @@ func (s *Server) zipToIso(config *config.Config, esxiFilePath, filename string) 
 	return isoFilePath, nil
 }
 
-func ExtractImageToDirectory(image io.ReaderAt, destination string) error {
-	img, err := iso9660.OpenImage(image)
+func extractImages(path, targetPath string, fs filesystem.FileSystem) error {
+	err := os.MkdirAll(targetPath, 0755)
 	if err != nil {
 		return err
 	}
-
-	root, err := img.RootDir()
+	err = os.Chmod(targetPath, 0755)
 	if err != nil {
 		return err
 	}
-
-	return extract(root, destination)
-
+	fmt.Println(targetPath)
+	files, err := fs.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		newTargetPath := filepath.Join(targetPath, strings.ToLower(file.Name()))
+		extractImagesHandler(file, path, newTargetPath, fs)
+	}
+    return nil
 }
 
-func extract(f *iso9660.File, targetPath string) error {
+func extractImagesHandler(f fs.FileInfo, basePath, targetPath string, fs filesystem.FileSystem) error {
+	basePath = filepath.Join(basePath, f.Name())
 	if f.IsDir() {
 		existing, err := os.Open(targetPath)
 		if err == nil {
@@ -323,27 +439,33 @@ func extract(f *iso9660.File, targetPath string) error {
 		} else {
 			return err
 		}
-
-		children, err := f.GetChildren()
+		children, err := fs.ReadDir(basePath)
 		if err != nil {
 			return err
 		}
-
-		for _, c := range children {
-			if err = extract(c, path.Join(targetPath, strings.ToLower(c.Name()))); err != nil {
+		for _, cfile := range children {
+			newTargetPath := filepath.Join(targetPath, strings.ToLower(cfile.Name()))
+			err = extractImagesHandler(cfile, basePath, newTargetPath, fs)
+			if err != nil {
 				return err
 			}
 		}
-	} else { // it's a file
+
+	} else {
 		newFile, err := os.Create(targetPath)
 		if err != nil {
 			return err
 		}
 		defer newFile.Close()
-		if _, err = io.Copy(newFile, f.Reader()); err != nil {
+		file, err := fs.OpenFile(basePath, os.O_RDONLY)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.Copy(newFile, file)
+		if err != nil {
 			return err
 		}
 	}
-
 	return nil
 }

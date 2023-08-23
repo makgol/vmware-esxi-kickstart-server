@@ -3,7 +3,7 @@ package common
 import (
 	"embed"
 	"encoding/xml"
-	"io/fs"
+	// "io/fs"
 	"net"
 	"sync"
 )
@@ -11,7 +11,7 @@ import (
 var (
 	MacIPMap               = make(map[string]net.IP)
 	MacIPMapMutex          sync.RWMutex
-	MacFileMap             = make(map[string]string)
+	MacFileMap             = make(map[string][]string)
 	MacFileMapMutex        sync.RWMutex
 	MacAddressManagerMutex sync.Mutex
 	MbootMutex             sync.RWMutex
@@ -25,10 +25,11 @@ var (
 	//go:embed templates/undionly.kpxe
 	//go:embed templates/autoexec.ipxe
 	//go:embed templates/default
+	//go:embed templates/grub.cfg
 	ksTemplatefiles embed.FS
 )
 
-func GetKsTemplatefiles() fs.FS {
+func GetKsTemplatefiles() embed.FS {
 	return ksTemplatefiles
 }
 
@@ -46,6 +47,8 @@ type Product struct {
 type YamlProduct struct {
 	EsxVersion     string `yaml:"esxVersion"`
 	EsxReleaseDate string `yaml:"releaseDate"`
+	RhelFamily     string `yaml:"rhelFamily"`
+	RhelVersion    string `yaml:"rhelVersion"`
 }
 
 type BootCfgTemplateData struct {

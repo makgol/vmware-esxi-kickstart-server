@@ -69,6 +69,49 @@ func (k KS) Validate() error {
 	)
 }
 
+func (s *Server) GetOsFamily(isoFileName string) (string, error) {
+	fmt.Println(isoFileName)
+	var isoType string
+	err := filepath.Walk(s.FileRootDirInfo.BootFileDirPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+            return err
+        }
+		if filepath.Base(path) == isoFileName {
+            isoType = "esxi"
+			return nil
+        }
+		if info.IsDir() && path != s.FileRootDirInfo.BootFileDirPath {
+            return filepath.SkipDir 
+        }
+        return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if isoType == "" {
+		err = filepath.Walk(s.FileRootDirInfo.RhelBootFileDirPath, func(path string, info os.FileInfo, err error) error {
+        if err != nil {
+            return err
+        }
+        if filepath.Base(path) == isoFileName {
+            isoType = "rhel"
+			return nil
+        }
+        if info.IsDir() && path != s.FileRootDirInfo.RhelBootFileDirPath {
+            return filepath.SkipDir 
+        }
+        return nil
+		})
+	}
+	if err != nil {
+		return "", err
+	}
+	if isoType == "" {
+        return "", fmt.Errorf("ISO file %s not found in either directory", isoFileName)
+	}
+    return isoType, nil
+}
+
 func (s *Server) getKsConfig(w http.ResponseWriter, r *http.Request) {
 	clientIP, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -202,9 +245,14 @@ func (s *Server) createKsConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) isoFileMapManager(mac, isoname string) error {
+	osFamily, err := s.GetOsFamily(isoname)
+	if err != nil {
+		return err
+	}
 	common.MacFileMapMutex.Lock()
 	defer common.MacFileMapMutex.Unlock()
-	common.MacFileMap[mac] = isoname
+	common.MacFileMap[mac] = []string{isoname, osFamily}
+	fmt.Println(osFamily)
 	s.logger.Info(fmt.Sprintf("update bootFilename %s to MAC %s", isoname, mac))
 	return nil
 }
@@ -370,6 +418,7 @@ func (s *Server) esxiVersionList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
+	rootBootFilePath := s.FileRootDirInfo.BootFileDirPath
 	bootFilePath := mux.Vars(r)["path"]
 	filename := filepath.Base(bootFilePath)
 	var fullBootFilePath string
@@ -377,9 +426,9 @@ func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 	case "mboot.efi":
 		common.MbootMutex.RLock()
 		defer common.MbootMutex.RUnlock()
-		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, filename)
+		fullBootFilePath = filepath.Join(rootBootFilePath, filename)
 	case "boot.cfg":
-		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
+		fullBootFilePath = filepath.Join(rootBootFilePath, bootFilePath)
 		tmpl, err := template.ParseFiles(fullBootFilePath)
 		if err != nil {
 			s.logger.Error("error opening file", zap.Error(err))
@@ -396,7 +445,58 @@ func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 		http.ServeContent(w, r, "boot.cfg", time.Now(), bytes.NewReader(buf.Bytes()))
 		return
 	default:
-		fullBootFilePath = filepath.Join(s.FileRootDirInfo.BootFileDirPath, bootFilePath)
+		fullBootFilePath = filepath.Join(rootBootFilePath, bootFilePath)
+	}
+	file, err := os.Open(fullBootFilePath)
+	if err != nil {
+		s.logger.Error("error opening file", zap.Error(err))
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+	file.Close()
+	http.ServeFile(w, r, fullBootFilePath)
+}
+
+func (s *Server) getRhelInstaller(w http.ResponseWriter, r *http.Request) {
+	rootBootFilePath := s.FileRootDirInfo.RhelBootFileDirPath
+	bootFilePath := mux.Vars(r)["path"]
+	filename := filepath.Base(bootFilePath)
+	rhelPosition := strings.Index(bootFilePath, "rhel")
+	if rhelPosition != -1 {
+		beforeRhel := bootFilePath[:rhelPosition]
+		afterRhel := strings.ToLower(bootFilePath[rhelPosition:])
+		bootFilePath = beforeRhel + afterRhel
+	}
+	
+	var fullBootFilePath string
+	switch filename {
+	case "grub.cfg":
+		ksTemplatefiles := common.GetKsTemplatefiles()
+        fullBootFilePath = filepath.Join("templates", filename)
+		content, err := ksTemplatefiles.ReadFile(fullBootFilePath)
+		if err != nil {
+			s.logger.Error("error reading embedded file", zap.Error(err))
+			http.Error(w, "embedded file not found", http.StatusNotFound)
+			return
+		}
+		tmpl, err := template.New(filename).Parse(string(content))
+		if err != nil {
+			s.logger.Error("error parsing embedded template", zap.Error(err))
+			http.Error(w, "embedded file not found", http.StatusNotFound)
+			return
+		}
+		dir := filepath.Dir(bootFilePath)
+		data := common.LoadBootCfgTemplateData(s.cfg.ServicePortAddr.String(), strconv.Itoa(s.cfg.APIServerPort), dir)
+		var buf bytes.Buffer
+		err = tmpl.Execute(&buf, data)
+		if err != nil {
+			s.logger.Error("failed to update boot file template", zap.Error(err))
+		}
+		http.ServeContent(w, r, filename, time.Now(), bytes.NewReader(buf.Bytes()))
+		return
+
+	default:
+		fullBootFilePath = filepath.Join(rootBootFilePath, bootFilePath)
 	}
 	file, err := os.Open(fullBootFilePath)
 	if err != nil {
@@ -455,6 +555,16 @@ func (s *Server) getInstallerHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) getRhelInstallerHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case "GET", "HEAD":
+		s.getRhelInstaller(w, r)
+	default:
+		s.logger.Warn(fmt.Sprintf("method %s not allowed", r.Method))
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+	}
+}
+
 func (s *Server) esxiVersionListHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "GET":
@@ -489,6 +599,7 @@ func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, file
 	logger.Info("starting API server...")
 
 	r := mux.NewRouter()
+	r.SkipClean(true)
 
 	r.HandleFunc("/", srv.uploadForm())
 	r.HandleFunc("/upload", srv.getUploadFileHandler(cfg))
@@ -496,6 +607,7 @@ func RunServer(ctx context.Context, cfg *config.Config, logger *zap.Logger, file
 	r.HandleFunc("/ks/{id}", srv.ksIDHandler)
 	r.HandleFunc("/esxi-versions", srv.esxiVersionListHandler)
 	r.HandleFunc("/installer/{path:.*}", srv.getInstallerHandler)
+	r.HandleFunc("/rhelinstaller/{path:.*}", srv.getRhelInstallerHandler)
 
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", cfg.APIServerPort), r); err != nil {
 		logger.Panic("shutting down API server...", zap.Error(err))

@@ -34,7 +34,18 @@ func initializeFileRootDir(dirPath string) (*config.FileRootDirInfo, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to change permissions of the upload file directory: %w", err)
 	}
-	return config.LoadDirInfo(bootFileDir, uploadedISODir), nil
+
+	rhelBootFileDir := filepath.Join(dirPath, "rhelbootfiles")
+	err = os.MkdirAll(rhelBootFileDir, 0777)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create boot file directory: %w", err)
+	}
+	err = os.Chmod(rhelBootFileDir, 0777)
+	if err != nil {
+		return nil, fmt.Errorf("failed to change permissions of the boot file directory: %w", err)
+	}
+
+	return config.LoadDirInfo(bootFileDir, uploadedISODir, rhelBootFileDir), nil
 }
 
 func main() {

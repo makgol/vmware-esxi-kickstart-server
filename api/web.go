@@ -201,6 +201,24 @@ func (s *Server) uploadForm() http.HandlerFunc {
 			if info.IsDir() && filepath.Dir(path) == s.FileRootDirInfo.BootFileDirPath {
 				uploadedFiles += "<li>" + filepath.Base(path) + "</li>"
 			}
+			if info.IsDir() && path != s.FileRootDirInfo.BootFileDirPath {
+                return filepath.SkipDir 
+			}
+			return nil
+		})
+
+		var uploadedRhelFiles string
+		filepath.Walk(s.FileRootDirInfo.RhelBootFileDirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				s.logger.Error("could not find files", zap.Error(err))
+				return err
+			}
+			if info.IsDir() && filepath.Dir(path) == s.FileRootDirInfo.RhelBootFileDirPath {
+				uploadedRhelFiles += "<li>" + filepath.Base(path) + "</li>"
+			}
+			if info.IsDir() && path != s.FileRootDirInfo.RhelBootFileDirPath {
+                return filepath.SkipDir 
+			}
 			return nil
 		})
 
@@ -213,20 +231,24 @@ func (s *Server) uploadForm() http.HandlerFunc {
                 <title>File Upload</title>
             </head>
             <body>
-                <h1>Upload a ESXi ISO file</h1>
+                <h1>Upload a ISO file</h1>
                 <form action="/upload" method="post" enctype="multipart/form-data">
                     <input type="file" name="file" required>
                     <button type="submit">Upload</button>
                 </form>
                 <br>
-                <h2>Uploaded files:</h2>
+                <h2>Uploaded VMware ESXi files:</h2>
                 <ul>
                 %s
                 </ul>
+				<h2>Uploaded Red Hat-Based Linux Distributions files:</h2>
+				<ul>
+				%s
+				</ul>
             </body>
             </html>
         `
 
-		w.Write([]byte(fmt.Sprintf(form, uploadedFiles)))
+		w.Write([]byte(fmt.Sprintf(form, uploadedFiles, uploadedRhelFiles)))
 	}
 }
