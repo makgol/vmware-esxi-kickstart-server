@@ -24,6 +24,7 @@ var (
 	//go:embed templates/ipxe.efi
 	//go:embed templates/undionly.kpxe
 	//go:embed templates/autoexec.ipxe
+	//go:embed templates/rhelautoexec.ipxe
 	//go:embed templates/default
 	//go:embed templates/grub.cfg
 	ksTemplatefiles embed.FS

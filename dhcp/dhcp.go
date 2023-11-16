@@ -103,7 +103,11 @@ func RunServer(ctx context.Context, config *config.Config, logger *zap.Logger) {
 				if userClass != nil && string(userClass) == "iPXE" {
 					bootFilename = filepath.Join(fileMap[0], mainBootLoader)
 				} else {
-					bootFilename = filepath.Join(fileMap[0], "ipxe.efi")
+					if fileMap[1] == "rhel" {
+						bootFilename = filepath.Join(httpUefiPath, fileMap[0], "ipxe.efi")
+					} else {
+					    bootFilename = filepath.Join(fileMap[0], "ipxe.efi")
+					}
 				}
 			case 16: //uefi http
 				url := &url.URL{

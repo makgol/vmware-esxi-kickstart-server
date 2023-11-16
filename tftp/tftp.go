@@ -29,12 +29,35 @@ type Server struct {
 func (s *Server) getReadHandler() func(string, io.ReaderFrom) error {
 	return func(filenamePath string, rf io.ReaderFrom) error {
 		filename := filepath.Base(filenamePath)
+		pathparts := strings.Split(filenamePath, "/")
 		var fullPath string
 		var file fs.File
 		var err error
 		switch filename {
 		case "autoexec.ipxe", "ipxe.efi", "pxelinux.0", "default", "undionly.kpxe":
 			ksTemplatefiles := common.GetKsTemplatefiles()
+			if pathparts[0] == "rhelinstaller" && filename == "autoexec.ipxe" {
+				fullPath = filepath.Join("templates", "rhelautoexec.ipxe")
+				content, err := ksTemplatefiles.ReadFile(fullPath)
+				tmpl, err := template.New(filename).Parse(string(content))
+				if err != nil {
+					s.logger.Error("error parsing embedded template", zap.Error(err))
+					return err
+				}
+				data := common.LoadBootCfgTemplateData(s.cfg.ServicePortAddr.String(), strconv.Itoa(s.cfg.APIServerPort), pathparts[1])
+				var buf bytes.Buffer
+				err = tmpl.Execute(&buf, data)
+				if err != nil {
+					s.logger.Error("failed to update boot file template", zap.Error(err))
+					return err
+				}
+				rf.ReadFrom(bytes.NewReader(buf.Bytes()))
+				if err != nil {
+					s.logger.Error("failed to send file", zap.Error(err))
+					return err
+				}
+				return nil
+			}
 			fullPath = filepath.Join("templates", filename)
 			file, err = ksTemplatefiles.Open(fullPath)
 			if err != nil {
