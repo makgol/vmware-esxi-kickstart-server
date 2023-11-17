@@ -252,7 +252,10 @@ func (s *Server) isoFileMapManager(mac, isoname string) error {
 	common.MacFileMapMutex.Lock()
 	defer common.MacFileMapMutex.Unlock()
 	common.MacFileMap[mac] = []string{isoname, osFamily}
-	fmt.Println(osFamily)
+
+	common.FileOSMapMutex.Lock()
+	defer common.FileOSMapMutex.Unlock()
+	common.FileOSMap[isoname] = osFamily
 	s.logger.Info(fmt.Sprintf("update bootFilename %s to MAC %s", isoname, mac))
 	return nil
 }
@@ -420,6 +423,17 @@ func (s *Server) esxiVersionList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 	rootBootFilePath := s.FileRootDirInfo.BootFileDirPath
 	bootFilePath := mux.Vars(r)["path"]
+	fmt.Println(bootFilePath)
+	pathparts := strings.Split(bootFilePath, "/")
+	common.FileOSMapMutex.RLock()
+	osFamily, found := common.FileOSMap[pathparts[0]]
+	common.FileOSMapMutex.RUnlock()
+	if found {
+		if osFamily == "rhel" {
+			s.logger.Info("rhel found.")
+			rootBootFilePath = s.FileRootDirInfo.RhelBootFileDirPath
+		}
+	}
 	filename := filepath.Base(bootFilePath)
 	var fullBootFilePath string
 	switch filename {
@@ -443,6 +457,30 @@ func (s *Server) getInstaller(w http.ResponseWriter, r *http.Request) {
 			s.logger.Error("failed to update boot file template", zap.Error(err))
 		}
 		http.ServeContent(w, r, "boot.cfg", time.Now(), bytes.NewReader(buf.Bytes()))
+		return
+	case "grub.cfg":
+		ksTemplatefiles := common.GetKsTemplatefiles()
+        fullBootFilePath = filepath.Join("templates", filename)
+		content, err := ksTemplatefiles.ReadFile(fullBootFilePath)
+		if err != nil {
+			s.logger.Error("error reading embedded file", zap.Error(err))
+			http.Error(w, "embedded file not found", http.StatusNotFound)
+			return
+		}
+		tmpl, err := template.New(filename).Parse(string(content))
+		if err != nil {
+			s.logger.Error("error parsing embedded template", zap.Error(err))
+			http.Error(w, "embedded file not found", http.StatusNotFound)
+			return
+		}
+		dir := filepath.Dir(bootFilePath)
+		data := common.LoadBootCfgTemplateData(s.cfg.ServicePortAddr.String(), strconv.Itoa(s.cfg.APIServerPort), dir)
+		var buf bytes.Buffer
+		err = tmpl.Execute(&buf, data)
+		if err != nil {
+			s.logger.Error("failed to update boot file template", zap.Error(err))
+		}
+		http.ServeContent(w, r, filename, time.Now(), bytes.NewReader(buf.Bytes()))
 		return
 	default:
 		fullBootFilePath = filepath.Join(rootBootFilePath, bootFilePath)

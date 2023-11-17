@@ -1,0 +1,6 @@
+DEFAULT install
+NOHALT 1
+LABEL install
+  KERNEL http://{{.KSServerAddr}}:{{.KSServerPort}}/rhelinstaller/{{.Filename}}/rhel/images/pxeboot/vmlinuz				
+  APPEND initrd=http://{{.KSServerAddr}}:{{.KSServerPort}}/rhelinstaller/{{.Filename}}/rhel/images/pxeboot/initrd.img inst.repo=http://{{.KSServerAddr}}:{{.KSServerPort}}/rhelinstaller/{{.Filename}}/rhel devfs=nomount
+  IPAPPEND 2

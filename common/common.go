@@ -13,6 +13,8 @@ var (
 	MacIPMapMutex          sync.RWMutex
 	MacFileMap             = make(map[string][]string)
 	MacFileMapMutex        sync.RWMutex
+	FileOSMap             = make(map[string]string)
+	FileOSMapMutex        sync.RWMutex
 	MacAddressManagerMutex sync.Mutex
 	MbootMutex             sync.RWMutex
 	IsoFileUploadMutex     sync.RWMutex
@@ -27,6 +29,7 @@ var (
 	//go:embed templates/rhelautoexec.ipxe
 	//go:embed templates/default
 	//go:embed templates/grub.cfg
+	//go:embed templates/rheldefault
 	ksTemplatefiles embed.FS
 )
 
