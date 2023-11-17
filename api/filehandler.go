@@ -278,6 +278,7 @@ func (s *Server) zipToIso(config *config.Config, esxiFilePath, filename string) 
       $addDepo = Add-EsxSoftwareDepot %s
 	  $imageName = (Get-EsxImageProfile | Where-Object { $_.Name -match '^ESXi-.*[0-9]-standard$' }).Name
 	  $exportResult = Export-EsxImageProfile -ImageProfile $imageName -ExportToIso %s -Force
+	  $imageName = $imageName | Sort-Object { $_.Length } | Select-Object -First 1
     `, esxiFilePath, isoFilePath)
 	err = exec.Command("pwsh", "-c", commands).Run()
 	if err != nil {
